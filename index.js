@@ -32,6 +32,29 @@ async function run() {
   try {
     await client.connect();
     const db = client.db(process.env.DB_NAME);
+    const paymentsCollection = db.collection("payments");
+    const userCollection = db.collection("user");
+
+    app.post("/payments", async (req, res) => {
+      const { user, session_id } = req.body;
+
+      const isExistSession = await paymentsCollection.findOne({ session_id });
+      if (isExistSession) {
+        return res.status(400).send({ message: "Session already exist" });
+      }
+
+      const payment_result = await paymentsCollection.insertOne({
+        userId: new ObjectId(user.id),
+        session_id,
+      });
+
+      const user_result = await userCollection.updateOne(
+        { _id: new ObjectId(user.id) },
+        { $set: { plan: "pro" } },
+      );
+
+      res.send({ payment_result, user_result });
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
