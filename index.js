@@ -34,8 +34,9 @@ async function run() {
     const db = client.db(process.env.DB_NAME);
     const paymentsCollection = db.collection("payments");
     const userCollection = db.collection("user");
+    const startupsCollection = db.collection("startups");
 
-    app.post("/payments", async (req, res) => {
+    app.post("/api/payments", async (req, res) => {
       const { user, session_id } = req.body;
 
       const isExistSession = await paymentsCollection.findOne({ session_id });
@@ -54,6 +55,18 @@ async function run() {
       );
 
       res.send({ payment_result, user_result });
+    });
+
+    app.post("/api/startup", async (req, res) => {
+      const data = req.body;
+
+      const result = await startupsCollection.insertOne(data);
+      res.send(result);
+    });
+
+    app.get("/api/startups", async (req, res) => {
+      const result = await startupsCollection.find().toArray();
+      res.send(result);
     });
 
     await client.db("admin").command({ ping: 1 });
