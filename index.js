@@ -65,7 +65,21 @@ async function run() {
     });
 
     app.get("/api/startups", async (req, res) => {
-      const result = await startupsCollection.find().toArray();
+      const query = {};
+
+      if (req.query.userId) {
+        query.userId = req.query.userId;
+      }
+
+      const result = await startupsCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    app.get("/api/startup/:id", async (req, res) => {
+      const { id } = req.params;
+      const result = await startupsCollection.findOne({
+        _id: new ObjectId(id),
+      });
       res.send(result);
     });
 
