@@ -35,6 +35,7 @@ async function run() {
     const paymentsCollection = db.collection("payments");
     const userCollection = db.collection("user");
     const startupsCollection = db.collection("startups");
+    const opportunitiesCollection = db.collection("opportunities");
 
     app.post("/api/payments", async (req, res) => {
       const { user, session_id } = req.body;
@@ -64,7 +65,27 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/api/startups", async (req, res) => {
+    app.patch("api/startup/:id", async (req, res) => {
+      const { id } = req.params;
+      const updateStartup = req.body;
+
+      const result = await startupsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updateStartup },
+      );
+
+      res.send(result);
+    });
+
+    app.delete("/api/startup/:id", async (req, res) => {
+      const { id } = req.params;
+      const result = await startupsCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      res.send(result);
+    });
+
+    app.get("/api/my/startups", async (req, res) => {
       const query = {};
 
       if (req.query.userId) {
@@ -80,6 +101,38 @@ async function run() {
       const result = await startupsCollection.findOne({
         _id: new ObjectId(id),
       });
+      res.send(result);
+    });
+
+    // ---------------------
+
+    app.post("/api/opportunity", async (req, res) => {
+      const data = req.body;
+
+      const result = await opportunitiesCollection.insertOne(data);
+      res.send(result);
+    });
+
+    app.get("/api/my/opportunities", async (req, res) => {
+      const query = {};
+
+      if (req.query.userId) {
+        query.userId = req.query.userId;
+      }
+
+      const result = await opportunitiesCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    app.patch("api/opportunity/:id", async (req, res) => {
+      const { id } = req.params;
+      const updateOpportunity = req.body;
+
+      const result = await opportunitiesCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updateOpportunity },
+      );
+
       res.send(result);
     });
 
