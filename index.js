@@ -62,19 +62,19 @@ async function run() {
       const data = req.body;
 
       const result = await startupsCollection.insertOne(data);
-      res.send(result);
+      res.send(result || {});
     });
 
-    app.patch("api/startup/:id", async (req, res) => {
+    app.patch("/api/startup/:id", async (req, res) => {
       const { id } = req.params;
-      const updateStartup = req.body;
+      const { _id, ...updateStartup } = req.body;
 
       const result = await startupsCollection.updateOne(
         { _id: new ObjectId(id) },
         { $set: updateStartup },
       );
 
-      res.send(result);
+      res.send(result || {});
     });
 
     app.delete("/api/startup/:id", async (req, res) => {
@@ -82,7 +82,7 @@ async function run() {
       const result = await startupsCollection.deleteOne({
         _id: new ObjectId(id),
       });
-      res.send(result);
+      res.send(result || {});
     });
 
     app.get("/api/my/startups", async (req, res) => {
@@ -93,7 +93,7 @@ async function run() {
       }
 
       const result = await startupsCollection.find(query).toArray();
-      res.send(result);
+      res.send(result || {});
     });
 
     app.get("/api/startup/:id", async (req, res) => {
@@ -101,7 +101,7 @@ async function run() {
       const result = await startupsCollection.findOne({
         _id: new ObjectId(id),
       });
-      res.send(result);
+      res.send(result || {});
     });
 
     // ---------------------
@@ -110,7 +110,7 @@ async function run() {
       const data = req.body;
 
       const result = await opportunitiesCollection.insertOne(data);
-      res.send(result);
+      res.send(result || {});
     });
 
     app.get("/api/my/opportunities", async (req, res) => {
@@ -121,10 +121,10 @@ async function run() {
       }
 
       const result = await opportunitiesCollection.find(query).toArray();
-      res.send(result);
+      res.send(result || {});
     });
 
-    app.patch("api/opportunity/:id", async (req, res) => {
+    app.patch("/api/opportunity/:id", async (req, res) => {
       const { id } = req.params;
       const updateOpportunity = req.body;
 
@@ -133,7 +133,7 @@ async function run() {
         { $set: updateOpportunity },
       );
 
-      res.send(result);
+      res.send(result || {});
     });
 
     await client.db("admin").command({ ping: 1 });
