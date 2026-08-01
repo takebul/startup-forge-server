@@ -126,13 +126,21 @@ async function run() {
 
     app.patch("/api/opportunity/:id", async (req, res) => {
       const { id } = req.params;
-      const updateOpportunity = req.body;
+      const { _id, ...updateOpportunity } = req.body;
 
       const result = await opportunitiesCollection.updateOne(
         { _id: new ObjectId(id) },
         { $set: updateOpportunity },
       );
 
+      res.send(result || {});
+    });
+
+    app.delete("/api/opportunity/:id", async (req, res) => {
+      const { id } = req.params;
+      const result = await opportunitiesCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
       res.send(result || {});
     });
 
