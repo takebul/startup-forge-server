@@ -58,31 +58,81 @@ async function run() {
       res.send({ payment_result, user_result });
     });
 
+    // ---------------------------------------------------------------------------
+    // 1. CREATE STARTUP
+    // ---------------------------------------------------------------------------
     app.post("/api/startup", async (req, res) => {
-      const { startupId, startup_name } = req.body;
+      try {
+        const data = req.body;
+        const startupName = data.startup_name || data.name;
+        const startupId = data.startupId || data.userId;
 
-      const data = req.body;
+        const startup_result = await startupsCollection.insertOne(data);
 
-      const startup_result = await startupsCollection.insertOne(data);
+        // Update ALL matching opportunities if startupName exists
+        let opportunity_result = null;
+        if (startupId && startupName) {
+          opportunity_result = await opportunitiesCollection.updateMany(
+            { startupId: startupId },
+            { $set: { startupName: startupName } },
+          );
+        }
 
-      const opportunity_result = await opportunitiesCollection.updateOne(
-        { startupId: startupId },
-        { $set: { startupId: startup_name } },
-      );
-
-      res.send({ startup_result, opportunity_result });
+        res.status(201).json({ startup_result, opportunity_result });
+      } catch (error) {
+        console.error("Error creating startup:", error);
+        res.status(500).json({ error: error.message });
+      }
     });
 
+    // ---------------------------------------------------------------------------
+    // 2. UPDATE STARTUP (Updates startup & syncs startupName in all opportunities)
+    // ---------------------------------------------------------------------------
     app.patch("/api/startup/:id", async (req, res) => {
-      const { id } = req.params;
-      const { _id, ...updateStartup } = req.body;
+      try {
+        const { id } = req.params;
+        const { _id, ...updateStartup } = req.body;
 
-      const startup_result = await startupsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: updateStartup },
-      );
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({ error: "Invalid Startup ID" });
+        }
 
-      res.send(startup_result || {});
+        // 1. Update startup document
+        const startup_result = await startupsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateStartup },
+        );
+
+        // 2. Extract updated name
+        const updatedName = updateStartup.startup_name || updateStartup.name;
+
+        // 3. Use updateMany and match startupId using string ID or ObjectId
+        let update_opportunities = null;
+        if (updatedName) {
+          update_opportunities = await opportunitiesCollection.updateMany(
+            {
+              $or: [
+                { startupId: id },
+                { startupId: new ObjectId(id) },
+                ...(updateStartup.startupId
+                  ? [{ startupId: updateStartup.startupId }]
+                  : []),
+              ],
+            },
+            { $set: { startupName: updatedName } },
+          );
+        }
+
+        console.log(
+          "Updated opportunities count:",
+          update_opportunities?.modifiedCount,
+        );
+
+        res.json({ startup_result, update_opportunities });
+      } catch (error) {
+        console.error("Error updating startup:", error);
+        res.status(500).json({ error: error.message });
+      }
     });
 
     app.delete("/api/startup/:id", async (req, res) => {
@@ -100,7 +150,10 @@ async function run() {
         query.startupId = req.query.startupId;
       }
 
-      const startup_result = await startupsCollection.find(query).toArray();
+      const startup_result = await startupsCollection
+        .find(query)
+        .sort({ _id: -1 })
+        .toArray();
       res.send(startup_result || {});
     });
 
@@ -128,7 +181,10 @@ async function run() {
         query.startupId = req.query.startupId;
       }
 
-      const result = await opportunitiesCollection.find(query).toArray();
+      const result = await opportunitiesCollection
+        .find(query)
+        .sort({ _id: -1 })
+        .toArray();
       res.send(result || {});
     });
 
