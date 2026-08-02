@@ -36,6 +36,8 @@ async function run() {
     const userCollection = db.collection("user");
     const startupsCollection = db.collection("startups");
     const opportunitiesCollection = db.collection("opportunities");
+    const applicationsCollection = db.collection("applications");
+    const bookmarksCollection = db.collection("bookmarks");
 
     app.post("/api/payments", async (req, res) => {
       const { user, session_id } = req.body;
@@ -74,7 +76,7 @@ async function run() {
         if (startupId && startupName) {
           opportunity_result = await opportunitiesCollection.updateMany(
             { startupId: startupId },
-            { $set: { startupName: startupName } },
+            { $set: { startupName: startupName, status: "Pending" } },
           );
         }
 
@@ -205,7 +207,7 @@ async function run() {
       const query = {};
 
       if (req.query.startupId) {
-        query.startupId = req.query.startupId;
+        query.opportunityId = req.query.startupId;
       }
 
       const result = await opportunitiesCollection
@@ -228,6 +230,68 @@ async function run() {
       const result = await opportunitiesCollection.findOne({
         _id: new ObjectId(id),
       });
+      res.send(result || {});
+    });
+
+    // ------------------
+    // applications
+    //---------------
+
+    app.post("/api/application", async (req, res) => {
+      const data = req.body;
+      const newApplication = {
+        ...data,
+        status: "Pending",
+        applied_at: new Date(),
+      };
+      const result = await applicationsCollection.insertOne(newApplication);
+      res.send(result || {});
+    });
+
+    app.delete("/api/application/:id", async (req, res) => {
+      const { id } = req.params;
+      const result = await applicationsCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      res.send(result || {});
+    });
+
+    app.get("/api/my/applications", async (req, res) => {
+      const query = {};
+
+      if (req.query.opportunityId) {
+        query.applicationId = req.query.opportunityId;
+      }
+
+      const result = await applicationsCollection
+        .find(query)
+        .sort({ _id: -1 })
+        .toArray();
+
+      res.send(result || {});
+    });
+
+    // --------------
+    // bookmarks
+    // -----------
+
+    app.post("/api/bookmark", async (req, res) => {
+      const bookmarkData = req.body;
+      const result = await bookmarksCollection.insertOne(bookmarkData);
+      res.send(result || {});
+    });
+
+    app.get("/api/my/bookmarks", async (req, res) => {
+      const query = {};
+
+      if (req.query.bookmarkId) {
+        query.bookmarkId = req.query.bookmarkId;
+      }
+
+      const result = await bookmarksCollection
+        .find(query)
+        .sort({ _id: -1 })
+        .toArray();
       res.send(result || {});
     });
 
