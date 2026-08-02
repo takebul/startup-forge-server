@@ -143,18 +143,23 @@ async function run() {
       res.send(result || {});
     });
 
-    app.get("/api/my/startups", async (req, res) => {
+    app.get("/api/my/startup", async (req, res) => {
       const query = {};
 
       if (req.query.startupId) {
         query.startupId = req.query.startupId;
       }
 
-      const startup_result = await startupsCollection
-        .find(query)
+      const startup_result = await startupsCollection.find(query).toArray();
+      res.send(startup_result || {});
+    });
+
+    app.get("/api/startups", async (req, res) => {
+      const result = await startupsCollection
+        .find()
         .sort({ _id: -1 })
         .toArray();
-      res.send(startup_result || {});
+      res.send(result || {});
     });
 
     app.get("/api/startup/:id", async (req, res) => {
@@ -166,25 +171,13 @@ async function run() {
     });
 
     // ---------------------
+    // opportunities
+    // ------------------
 
     app.post("/api/opportunity", async (req, res) => {
       const data = req.body;
 
       const result = await opportunitiesCollection.insertOne({ ...data });
-      res.send(result || {});
-    });
-
-    app.get("/api/my/opportunities", async (req, res) => {
-      const query = {};
-
-      if (req.query.startupId) {
-        query.startupId = req.query.startupId;
-      }
-
-      const result = await opportunitiesCollection
-        .find(query)
-        .sort({ _id: -1 })
-        .toArray();
       res.send(result || {});
     });
 
@@ -203,6 +196,36 @@ async function run() {
     app.delete("/api/opportunity/:id", async (req, res) => {
       const { id } = req.params;
       const result = await opportunitiesCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      res.send(result || {});
+    });
+
+    app.get("/api/my/opportunities", async (req, res) => {
+      const query = {};
+
+      if (req.query.startupId) {
+        query.startupId = req.query.startupId;
+      }
+
+      const result = await opportunitiesCollection
+        .find(query)
+        .sort({ _id: -1 })
+        .toArray();
+      res.send(result || {});
+    });
+
+    app.get("/api/opportunities", async (req, res) => {
+      const result = await opportunitiesCollection
+        .find()
+        .sort({ _id: -1 })
+        .toArray();
+      res.send(result || {});
+    });
+
+    app.get("/api/opportunity/:id", async (req, res) => {
+      const { id } = req.params;
+      const result = await opportunitiesCollection.findOne({
         _id: new ObjectId(id),
       });
       res.send(result || {});
