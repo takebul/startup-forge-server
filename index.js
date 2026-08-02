@@ -46,7 +46,7 @@ async function run() {
       }
 
       const payment_result = await paymentsCollection.insertOne({
-        userId: new ObjectId(user.id),
+        userId: new ObjectId(user?.id),
         session_id,
       });
 
@@ -59,22 +59,30 @@ async function run() {
     });
 
     app.post("/api/startup", async (req, res) => {
+      const { startupId, startup_name } = req.body;
+
       const data = req.body;
 
-      const result = await startupsCollection.insertOne(data);
-      res.send(result || {});
+      const startup_result = await startupsCollection.insertOne(data);
+
+      const opportunity_result = await opportunitiesCollection.updateOne(
+        { startupId: startupId },
+        { $set: { startupId: startup_name } },
+      );
+
+      res.send({ startup_result, opportunity_result });
     });
 
     app.patch("/api/startup/:id", async (req, res) => {
       const { id } = req.params;
       const { _id, ...updateStartup } = req.body;
 
-      const result = await startupsCollection.updateOne(
+      const startup_result = await startupsCollection.updateOne(
         { _id: new ObjectId(id) },
         { $set: updateStartup },
       );
 
-      res.send(result || {});
+      res.send(startup_result || {});
     });
 
     app.delete("/api/startup/:id", async (req, res) => {
@@ -88,12 +96,12 @@ async function run() {
     app.get("/api/my/startups", async (req, res) => {
       const query = {};
 
-      if (req.query.userId) {
-        query.userId = req.query.userId;
+      if (req.query.startupId) {
+        query.startupId = req.query.startupId;
       }
 
-      const result = await startupsCollection.find(query).toArray();
-      res.send(result || {});
+      const startup_result = await startupsCollection.find(query).toArray();
+      res.send(startup_result || {});
     });
 
     app.get("/api/startup/:id", async (req, res) => {
@@ -109,15 +117,15 @@ async function run() {
     app.post("/api/opportunity", async (req, res) => {
       const data = req.body;
 
-      const result = await opportunitiesCollection.insertOne(data);
+      const result = await opportunitiesCollection.insertOne({ ...data });
       res.send(result || {});
     });
 
     app.get("/api/my/opportunities", async (req, res) => {
       const query = {};
 
-      if (req.query.userId) {
-        query.userId = req.query.userId;
+      if (req.query.startupId) {
+        query.startupId = req.query.startupId;
       }
 
       const result = await opportunitiesCollection.find(query).toArray();
