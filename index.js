@@ -341,7 +341,16 @@ async function run() {
     // ─── 1. CREATE BOOKMARK ────────────────────────────────────────────────────────
     app.post("/api/bookmark", async (req, res) => {
       try {
-        const { opportunityId, userId } = req.body;
+        const {
+          opportunityId,
+          userId,
+          roleTitle,
+          startupName,
+          workType,
+          commitmentLevel,
+          deadline,
+          requiredSkills,
+        } = req.body;
 
         if (!opportunityId || !userId) {
           return res
@@ -352,7 +361,7 @@ async function run() {
         const oppIdStr = String(opportunityId);
         const userIdStr = String(userId);
 
-        // Prevent duplicate entries
+        // Check if bookmark already exists
         const existing = await bookmarksCollection.findOne({
           opportunityId: oppIdStr,
           userId: userIdStr,
@@ -362,12 +371,20 @@ async function run() {
           return res.json(existing);
         }
 
-        const result = await bookmarksCollection.insertOne({
+        // Insert rich bookmark document
+        const bookmarkData = {
           opportunityId: oppIdStr,
           userId: userIdStr,
+          roleTitle: roleTitle || "Collaborator Role",
+          startupName: startupName || "Startup",
+          workType: workType || "Remote",
+          commitmentLevel: commitmentLevel || "Part-Time",
+          deadline: deadline || "N/A",
+          requiredSkills: Array.isArray(requiredSkills) ? requiredSkills : [],
           createdAt: new Date(),
-        });
+        };
 
+        const result = await bookmarksCollection.insertOne(bookmarkData);
         res.status(201).json(result);
       } catch (error) {
         console.error("Error creating bookmark:", error);
