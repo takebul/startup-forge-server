@@ -218,19 +218,35 @@ async function run() {
     });
 
     app.get("/api/opportunities", async (req, res) => {
-      const result = await opportunitiesCollection
-        .find()
-        .sort({ _id: -1 })
-        .toArray();
-      res.send(result || {});
+      try {
+        const result = await opportunitiesCollection
+          .find()
+          .sort({ _id: -1 })
+          .toArray();
+        res.send(result || []);
+      } catch (error) {
+        console.error("Error fetching opportunities:", error);
+        res.status(500).send({ error: error.message });
+      }
     });
 
     app.get("/api/opportunity/:id", async (req, res) => {
-      const { id } = req.params;
-      const result = await opportunitiesCollection.findOne({
-        _id: new ObjectId(id),
-      });
-      res.send(result || {});
+      try {
+        const { id } = req.params;
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ error: "Invalid Opportunity ID" });
+        }
+
+        const result = await opportunitiesCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        res.send(result || {});
+      } catch (error) {
+        console.error("Error fetching opportunity details:", error);
+        res.status(500).send({ error: error.message });
+      }
     });
 
     // ------------------
@@ -238,14 +254,80 @@ async function run() {
     //---------------
 
     app.post("/api/application", async (req, res) => {
-      const data = req.body;
-      const newApplication = {
-        ...data,
-        status: "Pending",
-        applied_at: new Date(),
-      };
-      const result = await applicationsCollection.insertOne(newApplication);
-      res.send(result || {});
+      try {
+        const data = req.body;
+        const newApplication = {
+          ...data,
+          status: "Pending",
+          appliedDate: new Date().toISOString().split("T")[0],
+        };
+
+        const result = await applicationsCollection.insertOne(newApplication);
+        res.status(201).send(result);
+      } catch (error) {
+        console.error("Error submitting application:", error);
+        res.status(500).send({ error: error.message });
+      }
+    });
+
+    // ─── 3. GET MY APPLICATIONS
+    app.get("/api/my/applications", async (req, res) => {
+      try {
+        const { collaboratorId, userId, opportunityId } = req.query;
+        const query = {};
+
+        // Filter by user ID
+        const activeUserId = collaboratorId || userId;
+        if (activeUserId) {
+          query.$or = [
+            { collaboratorId: activeUserId },
+            { userId: activeUserId },
+          ];
+        }
+
+        // FIX: Changed applicationId -> opportunityId
+        if (opportunityId) {
+          query.opportunityId = opportunityId;
+        }
+
+        // MongoDB Aggregation Pipeline ($lookup to join opportunities collection)
+        const result = await applicationsCollection
+          .aggregate([
+            { $match: query },
+            {
+              $addFields: {
+                // Safely convert string opportunityId to ObjectId if valid
+                convertedOppId: {
+                  $cond: {
+                    if: {
+                      $and: [
+                        { $eq: [{ $type: "$opportunityId" }, "string"] },
+                        { $eq: [{ $strLenCP: "$opportunityId" }, 24] },
+                      ],
+                    },
+                    then: { $toObjectId: "$opportunityId" },
+                    else: "$opportunityId",
+                  },
+                },
+              },
+            },
+            {
+              $lookup: {
+                from: "opportunities",
+                localField: "convertedOppId",
+                foreignField: "_id",
+                as: "opportunityDetails",
+              },
+            },
+            { $sort: { _id: -1 } },
+          ])
+          .toArray();
+
+        res.send(result || []);
+      } catch (error) {
+        console.error("Error fetching applications:", error);
+        res.status(500).send({ error: error.message });
+      }
     });
 
     app.delete("/api/application/:id", async (req, res) => {
@@ -256,43 +338,87 @@ async function run() {
       res.send(result || {});
     });
 
-    app.get("/api/my/applications", async (req, res) => {
-      const query = {};
-
-      if (req.query.opportunityId) {
-        query.applicationId = req.query.opportunityId;
-      }
-
-      const result = await applicationsCollection
-        .find(query)
-        .sort({ _id: -1 })
-        .toArray();
-
-      res.send(result || {});
-    });
-
-    // --------------
-    // bookmarks
-    // -----------
-
+    // ─── 1. CREATE BOOKMARK ────────────────────────────────────────────────────────
     app.post("/api/bookmark", async (req, res) => {
-      const bookmarkData = req.body;
-      const result = await bookmarksCollection.insertOne(bookmarkData);
-      res.send(result || {});
+      try {
+        const { opportunityId, userId } = req.body;
+
+        if (!opportunityId || !userId) {
+          return res
+            .status(400)
+            .json({ error: "opportunityId and userId are required" });
+        }
+
+        const oppIdStr = String(opportunityId);
+        const userIdStr = String(userId);
+
+        // Prevent duplicate entries
+        const existing = await bookmarksCollection.findOne({
+          opportunityId: oppIdStr,
+          userId: userIdStr,
+        });
+
+        if (existing) {
+          return res.json(existing);
+        }
+
+        const result = await bookmarksCollection.insertOne({
+          opportunityId: oppIdStr,
+          userId: userIdStr,
+          createdAt: new Date(),
+        });
+
+        res.status(201).json(result);
+      } catch (error) {
+        console.error("Error creating bookmark:", error);
+        res.status(500).json({ error: error.message });
+      }
     });
 
-    app.get("/api/my/bookmarks", async (req, res) => {
-      const query = {};
+    // ─── 2. DELETE BOOKMARK ────────────────────────────────────────────────────────
+    app.delete("/api/bookmark/:id", async (req, res) => {
+      try {
+        const { id } = req.params; // opportunityId
+        const { userId } = req.query;
 
-      if (req.query.bookmarkId) {
-        query.bookmarkId = req.query.bookmarkId;
+        const query = {
+          $or: [
+            { opportunityId: String(id) },
+            ...(ObjectId.isValid(id) ? [{ _id: new ObjectId(id) }] : []),
+          ],
+        };
+
+        if (userId) {
+          query.userId = String(userId);
+        }
+
+        const result = await bookmarksCollection.deleteOne(query);
+        res.json(result);
+      } catch (error) {
+        console.error("Error deleting bookmark:", error);
+        res.status(500).json({ error: error.message });
       }
+    });
 
-      const result = await bookmarksCollection
-        .find(query)
-        .sort({ _id: -1 })
-        .toArray();
-      res.send(result || {});
+    // ─── 3. GET USER BOOKMARKS ────────────────────────────────────────────────────
+    app.get("/api/my/bookmarks", async (req, res) => {
+      try {
+        const { userId } = req.query;
+
+        if (!userId) {
+          return res.json([]);
+        }
+
+        const result = await bookmarksCollection
+          .find({ userId: String(userId) })
+          .sort({ _id: -1 })
+          .toArray();
+
+        res.json(result || []);
+      } catch (error) {
+        console.error("Error fetching bookmarks:", error);
+        res.status(500).json({ error: error.message });
+      }
     });
 
     await client.db("admin").command({ ping: 1 });
