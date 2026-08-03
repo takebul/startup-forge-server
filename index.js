@@ -33,7 +33,7 @@ async function run() {
     await client.connect();
     const db = client.db(process.env.DB_NAME);
     const paymentsCollection = db.collection("payments");
-    const userCollection = db.collection("user");
+    const usersCollection = db.collection("user");
     const startupsCollection = db.collection("startups");
     const opportunitiesCollection = db.collection("opportunities");
     const applicationsCollection = db.collection("applications");
@@ -52,7 +52,7 @@ async function run() {
         session_id,
       });
 
-      const user_result = await userCollection.updateOne(
+      const user_result = await usersCollection.updateOne(
         { _id: new ObjectId(user.id) },
         { $set: { plan: "pro" } },
       );
@@ -417,6 +417,49 @@ async function run() {
         res.json(result || []);
       } catch (error) {
         console.error("Error fetching bookmarks:", error);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // ----------------
+    // user
+    // ------------
+
+    app.get("/api/user/profile/:id", async (req, res) => {
+      const { id } = req.params;
+      const result = await usersCollection.findOne({ _id: new ObjectId(id) });
+      res.send(result || {});
+    });
+
+    app.patch("/api/user/profile/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { name, image, skills, bio } = req.body;
+
+        const updateFields = {
+          updatedAt: new Date(),
+        };
+
+        if (name) updateFields.name = name;
+        if (image) updateFields.image = image;
+        if (skills !== undefined) updateFields.skills = skills;
+        if (bio !== undefined) updateFields.bio = bio;
+
+        const query = {
+          $or: [
+            ...(ObjectId.isValid(id) ? [{ _id: new ObjectId(id) }] : []),
+            { id: id },
+            { userId: id },
+          ],
+        };
+
+        const result = await usersCollection.updateOne(query, {
+          $set: updateFields,
+        });
+
+        res.json({ success: true, result });
+      } catch (error) {
+        console.error("Error updating user profile:", error);
         res.status(500).json({ error: error.message });
       }
     });
