@@ -32,32 +32,54 @@ async function run() {
   try {
     await client.connect();
     const db = client.db(process.env.DB_NAME);
-    const paymentsCollection = db.collection("payments");
+    const paymentsCollection = db.collection("subscriptions");
     const usersCollection = db.collection("user");
     const startupsCollection = db.collection("startups");
     const opportunitiesCollection = db.collection("opportunities");
     const applicationsCollection = db.collection("applications");
     const bookmarksCollection = db.collection("bookmarks");
+    const plansCollection = db.collection("plans");
 
-    app.post("/api/payments", async (req, res) => {
-      const { user, session_id } = req.body;
+    app.post("/api/subscriptions", async (req, res) => {
+      const { subsInfo } = req.body;
 
-      const isExistSession = await paymentsCollection.findOne({ session_id });
+      const isExistSession = await paymentsCollection.findOne({
+        "subsInfo.session_id": subsInfo.session_id,
+      });
+
       if (isExistSession) {
         return res.status(400).send({ message: "Session already exist" });
       }
 
-      const payment_result = await paymentsCollection.insertOne({
-        userId: new ObjectId(user?.id),
-        session_id,
+      const subscription_result = await paymentsCollection.insertOne({
+        ...subsInfo,
+        createdAt: new Date(),
       });
 
-      const user_result = await usersCollection.updateOne(
-        { _id: new ObjectId(user.id) },
-        { $set: { plan: "pro" } },
+      const filter = { email: subsInfo.email };
+
+      const updateDocument = {
+        $set: {
+          plan: subsInfo.planId,
+        },
+      };
+
+      const update_user_result = await usersCollection.updateOne(
+        filter,
+        updateDocument,
       );
 
-      res.send({ payment_result, user_result });
+      res.send({ subscription_result, update_user_result });
+    });
+
+    // plans
+    app.get("/api/plans", async (req, res) => {
+      const query = {};
+      if (req.query.plan_id) {
+        query.plan_id = req.query.plan_id;
+      }
+      const result = await plansCollection.findOne(query);
+      res.send(result);
     });
 
     // ---------------------------------------------------------------------------
@@ -207,7 +229,7 @@ async function run() {
       const query = {};
 
       if (req.query.startupId) {
-        query.opportunityId = req.query.startupId;
+        query.startupId = req.query.startupId;
       }
 
       const result = await opportunitiesCollection
