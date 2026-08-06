@@ -292,6 +292,42 @@ async function run() {
       }
     });
 
+    app.patch("/api/application/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { status } = req.body; // Extract status from request body
+
+        if (!status) {
+          return res.status(400).send({ error: "Status is required" });
+        }
+
+        const result = await applicationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status } },
+        );
+
+        res.send(result || {});
+      } catch (err) {
+        console.error("Error updating application status:", err);
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    // ___ GET APPLICATIONS
+    app.get("/api/founder/applications", async (req, res) => {
+      const query = {};
+
+      if (req.query.startupId) {
+        query.startupId = req.query.startupId;
+      }
+
+      const result = await applicationsCollection
+        .find(query)
+        .sort({ _id: -1 })
+        .toArray();
+      res.send(result || {});
+    });
+
     // ─── 3. GET MY APPLICATIONS
     app.get("/api/my/applications", async (req, res) => {
       try {
