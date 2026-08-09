@@ -41,7 +41,7 @@ async function run() {
     const plansCollection = db.collection("plans");
 
     app.post("/api/subscriptions", async (req, res) => {
-      const { subsInfo } = req.body;
+      const { subsInfo, user } = req.body;
 
       const isExistSession = await paymentsCollection.findOne({
         "subsInfo.session_id": subsInfo.session_id,
@@ -53,7 +53,8 @@ async function run() {
 
       const subscription_result = await paymentsCollection.insertOne({
         ...subsInfo,
-        createdAt: new Date(),
+        user: user?.name,
+        subscriptionAt: new Date(),
       });
 
       const filter = { email: subsInfo.email };
@@ -70,6 +71,14 @@ async function run() {
       );
 
       res.send({ subscription_result, update_user_result });
+    });
+
+    app.get("/api/subscriptions", async (req, res) => {
+      const result = await paymentsCollection
+        .find()
+        .sort({ _id: -1 })
+        .toArray();
+      res.send(result);
     });
 
     // plans
