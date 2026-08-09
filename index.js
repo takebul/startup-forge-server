@@ -539,6 +539,23 @@ async function run() {
       }
     });
 
+    app.patch("/api/user/:id", async (req, res) => {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      const result = await usersCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status } },
+      );
+
+      res.send(result || {});
+    });
+
+    app.get("/api/users", async (req, res) => {
+      const result = await usersCollection.find().sort({ _id: -1 }).toArray();
+      res.send(result || {});
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
