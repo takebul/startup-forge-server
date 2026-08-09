@@ -130,29 +130,49 @@ async function run() {
           return res.status(400).json({ error: "Invalid Startup ID" });
         }
 
-        // 1. Update startup document
+        // 1. Fetch existing startup to get custom startupId if present
+        const existingStartup = await startupsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        // 2. Update startup document in DB
         const startup_result = await startupsCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: updateStartup },
         );
 
-        // 2. Extract updated name
+        // 3. Extract updated name and startupId references
         const updatedName = updateStartup.startup_name || updateStartup.name;
+        const customStartupId =
+          updateStartup.startupId || existingStartup?.startupId;
 
-        // 3. Use updateMany and match startupId using string ID or ObjectId
-        let update_opportunities = null;
+        // 4. Prepare fields to update in opportunitiesCollection
+        const opportunitySet = {};
+
         if (updatedName) {
+          opportunitySet.startupName = updatedName;
+        }
+
+        if (updateStartup.status !== undefined) {
+          opportunitySet.status = "Active";
+        }
+
+        let update_opportunities = null;
+
+        // 5. Update matching opportunities
+        if (Object.keys(opportunitySet).length > 0) {
           update_opportunities = await opportunitiesCollection.updateMany(
             {
               $or: [
                 { startupId: id },
                 { startupId: new ObjectId(id) },
-                ...(updateStartup.startupId
-                  ? [{ startupId: updateStartup.startupId }]
+                ...(customStartupId ? [{ startupId: customStartupId }] : []),
+                ...(customStartupId && ObjectId.isValid(customStartupId)
+                  ? [{ startupId: new ObjectId(customStartupId) }]
                   : []),
               ],
             },
-            { $set: { startupName: updatedName } },
+            { $set: opportunitySet },
           );
         }
 
