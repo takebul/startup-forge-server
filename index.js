@@ -215,6 +215,15 @@ async function run() {
       res.send(result || {});
     });
 
+    app.get("/api/featured/startups", async (req, res) => {
+      const data = await startupsCollection
+        .find()
+        .sort({ _id: -1 })
+        .limit(8)
+        .toArray();
+      res.send(data || {});
+    });
+
     app.get("/api/startup/:id", async (req, res) => {
       const { id } = req.params;
       const result = await startupsCollection.findOne({
@@ -298,6 +307,15 @@ async function run() {
         console.error("Error fetching opportunity details:", error);
         res.status(500).send({ error: error.message });
       }
+    });
+
+    app.get("/api/featured/opportunities", async (req, res) => {
+      const data = await opportunitiesCollection
+        .find()
+        .sort({ _id: -1 })
+        .limit(8)
+        .toArray();
+      res.send(data || {});
     });
 
     // ------------------
