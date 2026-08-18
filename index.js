@@ -278,16 +278,22 @@ async function run() {
     });
 
     app.get("/api/opportunities", async (req, res) => {
-      try {
-        const result = await opportunitiesCollection
-          .find()
-          .sort({ _id: -1 })
-          .toArray();
-        res.send(result || []);
-      } catch (error) {
-        console.error("Error fetching opportunities:", error);
-        res.status(500).send({ error: error.message });
-      }
+      const limit = Number(req.query.limit) || 9;
+      const page = Number(req.query.page) || 1;
+
+      const total_data = await opportunitiesCollection.countDocuments();
+      const total_page = Math.ceil(total_data / limit);
+
+      const skip = (page - 1) * limit;
+
+      const data = await opportunitiesCollection
+        .find()
+        .skip(skip)
+        .limit(limit)
+        .sort({ _id: -1 })
+        .toArray();
+
+      res.send({ data, total_page, page, skip, total_data });
     });
 
     app.get("/api/opportunity/:id", async (req, res) => {
