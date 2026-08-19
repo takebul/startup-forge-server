@@ -278,7 +278,15 @@ async function run() {
     });
 
     app.get("/api/opportunities", async (req, res) => {
-      const limit = Number(req.query.limit) || 9;
+      const searchTitleAndSkills = req.query.search || "";
+      let query = {};
+
+      query.$or = [
+        { roleTitle: { $regex: searchTitleAndSkills, $options: "i" } },
+        { requiredSkills: { $regex: searchTitleAndSkills, $options: "i" } },
+      ];
+
+      const limit = Number(req.query.limit);
       const page = Number(req.query.page) || 1;
 
       const total_data = await opportunitiesCollection.countDocuments();
@@ -287,7 +295,7 @@ async function run() {
       const skip = (page - 1) * limit;
 
       const data = await opportunitiesCollection
-        .find()
+        .find(query)
         .skip(skip)
         .limit(limit)
         .sort({ _id: -1 })
