@@ -207,12 +207,79 @@ async function run() {
       res.send(startup_result || {});
     });
 
+    // app.get("/api/startups", async (req, res) => {
+    //   const result = await startupsCollection
+    //     .find()
+    //     .sort({ _id: -1 })
+    //     .toArray();
+    //   res.send(result || {});
+    // });
+
     app.get("/api/startups", async (req, res) => {
-      const result = await startupsCollection
-        .find()
-        .sort({ _id: -1 })
-        .toArray();
-      res.send(result || {});
+      try {
+        const { search = "", industry = "", funding_stage = "" } = req.query;
+        const limit = Number(req.query.limit) || 0;
+        const page = Number(req.query.page) || 1;
+
+        let query = {};
+
+        // 1. Search by startup name or description
+        if (search.trim()) {
+          query.$or = [
+            { startup_name: { $regex: search.trim(), $options: "i" } },
+            { industry: { $regex: search.trim(), $options: "i" } },
+            { description: { $regex: search.trim(), $options: "i" } },
+          ];
+        }
+
+        // 2. Filter by Industry using MongoDB $in
+        if (industry && industry !== "All") {
+          const industriesArray = industry
+            .split(",")
+            .map((ind) => ind.trim())
+            .filter(Boolean);
+
+          if (industriesArray.length > 0) {
+            query.industry = {
+              $in: industriesArray.map((ind) => new RegExp(`^${ind}$`, "i")),
+            };
+          }
+        }
+
+        // 3. Filter by Funding Stage (Optional)
+        if (funding_stage && funding_stage !== "All") {
+          query.funding_stage = {
+            $regex: `^${funding_stage.trim()}$`,
+            $options: "i",
+          };
+        }
+
+        const total_data = await startupsCollection.countDocuments(query);
+        const total_page = limit > 0 ? Math.ceil(total_data / limit) : 1;
+        const skip = limit > 0 ? (page - 1) * limit : 0;
+
+        const cursor = startupsCollection.find(query).sort({ _id: -1 });
+        if (limit > 0) {
+          cursor.skip(skip).limit(limit);
+        }
+
+        const data = await cursor.toArray();
+
+        // Returns array directly if no query parameters, or structured pagination
+        if (
+          !req.query.page &&
+          !req.query.limit &&
+          !req.query.industry &&
+          !req.query.search
+        ) {
+          return res.send(data);
+        }
+
+        res.send({ data, total_data, total_page, page, startups: data });
+      } catch (error) {
+        console.error("Error fetching startups:", error);
+        res.status(500).send({ error: "Failed to fetch startups" });
+      }
     });
 
     app.get("/api/featured/startups", async (req, res) => {
@@ -277,31 +344,141 @@ async function run() {
       res.send(result || {});
     });
 
+    // app.get("/api/opportunities", async (req, res) => {
+    //   const searchTitleAndSkills = req.query.search || "";
+    //   let query = {};
+
+    //   query.$or = [
+    //     { roleTitle: { $regex: searchTitleAndSkills, $options: "i" } },
+    //     { requiredSkills: { $regex: searchTitleAndSkills, $options: "i" } },
+    //   ];
+
+    //   const limit = Number(req.query.limit);
+    //   const page = Number(req.query.page) || 1;
+
+    //   const total_data = await opportunitiesCollection.countDocuments();
+    //   const total_page = Math.ceil(total_data / limit);
+
+    //   const skip = (page - 1) * limit;
+
+    //   const data = await opportunitiesCollection
+    //     .find(query)
+    //     .skip(skip)
+    //     .limit(limit)
+    //     .sort({ _id: -1 })
+    //     .toArray();
+
+    //   res.send({ data, total_page, page, skip, total_data });
+    // });
+
     app.get("/api/opportunities", async (req, res) => {
-      const searchTitleAndSkills = req.query.search || "";
-      let query = {};
+      try {
+        const search = req.query.search || "";
+        const workType = req.query.workType || "";
+        const industry = req.query.industry || "";
+        const limit = Number(req.query.limit) || 9;
+        const page = Number(req.query.page) || 1;
 
-      query.$or = [
-        { roleTitle: { $regex: searchTitleAndSkills, $options: "i" } },
-        { requiredSkills: { $regex: searchTitleAndSkills, $options: "i" } },
-      ];
+        let queryConditions = [];
 
-      const limit = Number(req.query.limit);
-      const page = Number(req.query.page) || 1;
+        // 1. Search by Role Title or Skills
+        if (search.trim()) {
+          queryConditions.push({
+            $or: [
+              { roleTitle: { $regex: search.trim(), $options: "i" } },
+              { requiredSkills: { $regex: search.trim(), $options: "i" } },
+            ],
+          });
+        }
 
-      const total_data = await opportunitiesCollection.countDocuments();
-      const total_page = Math.ceil(total_data / limit);
+        // 2. Filter by Work Type using MongoDB $in
+        if (workType && workType !== "All") {
+          const workTypesArray = workType
+            .split(",")
+            .map((w) => w.trim())
+            .filter(Boolean);
 
-      const skip = (page - 1) * limit;
+          if (workTypesArray.length > 0) {
+            queryConditions.push({
+              workType: {
+                $in: workTypesArray.map((w) => new RegExp(`^${w}$`, "i")),
+              },
+            });
+          }
+        }
 
-      const data = await opportunitiesCollection
-        .find(query)
-        .skip(skip)
-        .limit(limit)
-        .sort({ _id: -1 })
-        .toArray();
+        // 3. Filter by Industry using MongoDB $in (Matches startup industries)
+        if (industry && industry !== "All") {
+          const industriesArray = industry
+            .split(",")
+            .map((i) => i.trim())
+            .filter(Boolean);
 
-      res.send({ data, total_page, page, skip, total_data });
+          if (industriesArray.length > 0) {
+            const industryRegexes = industriesArray.map(
+              (ind) => new RegExp(`^${ind}$`, "i"),
+            );
+
+            // Find all startups that belong to the requested industries
+            const matchingStartups = await startupsCollection
+              .find({ industry: { $in: industryRegexes } })
+              .toArray();
+
+            const matchedStartupIds = [];
+            const matchedStartupNames = [];
+
+            matchingStartups.forEach((s) => {
+              if (s._id) {
+                matchedStartupIds.push(s._id.toString());
+                matchedStartupIds.push(s._id);
+              }
+              if (s.startupId) {
+                matchedStartupIds.push(s.startupId.toString());
+              }
+              if (s.startup_name) {
+                matchedStartupNames.push(s.startup_name);
+              }
+              if (s.name) {
+                matchedStartupNames.push(s.name);
+              }
+            });
+
+            queryConditions.push({
+              $or: [
+                { startupId: { $in: matchedStartupIds } },
+                {
+                  startupName: {
+                    $in: matchedStartupNames.map(
+                      (n) => new RegExp(`^${n}$`, "i"),
+                    ),
+                  },
+                },
+                { industry: { $in: industryRegexes } },
+              ],
+            });
+          }
+        }
+
+        // Build the final combined query
+        const query =
+          queryConditions.length > 0 ? { $and: queryConditions } : {};
+
+        const total_data = await opportunitiesCollection.countDocuments(query);
+        const total_page = Math.ceil(total_data / limit) || 1;
+        const skip = (page - 1) * limit;
+
+        const data = await opportunitiesCollection
+          .find(query)
+          .skip(skip)
+          .limit(limit)
+          .sort({ _id: -1 })
+          .toArray();
+
+        res.send({ data, total_page, page, skip, total_data });
+      } catch (error) {
+        console.error("Error in /api/opportunities:", error);
+        res.status(500).send({ error: "Failed to fetch opportunities" });
+      }
     });
 
     app.get("/api/opportunity/:id", async (req, res) => {
