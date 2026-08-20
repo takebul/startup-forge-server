@@ -7,6 +7,11 @@ const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 dotenv.config();
 
+const logger = (req, res, next) => {
+  console.log("logger middleware logged", req.params);
+  next();
+};
+
 const uri = process.env.MONGODB_URI;
 
 const app = express();
@@ -39,6 +44,76 @@ async function run() {
     const applicationsCollection = db.collection("applications");
     const bookmarksCollection = db.collection("bookmarks");
     const plansCollection = db.collection("plans");
+    const sessionCollection = db.collection("session");
+
+    // verification related
+
+    const verifyToken = async (req, res, next) => {
+      console.log("headers", req.headers);
+
+      const authHeader = req.headers?.authorization;
+
+      if (!authHeader) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+
+      const token = authHeader.split(" ")[1];
+
+      if (!token) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+
+      const query = { token: token };
+
+      const session = await sessionCollection.findOne(query);
+
+      if (!session) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+
+      const userId = session?.userId;
+
+      const userQuery = {
+        _id: userId,
+      };
+
+      const user = await usersCollection.findOne(userQuery);
+
+      if (!user) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+
+      // set data in the req object
+      req.user = user;
+
+      next();
+    };
+
+    const verifyFounder = async (req, res, next) => {
+      if (req.user?.accountType !== "founder") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+
+      next();
+    };
+
+    const verifyCollaborator = async (req, res, next) => {
+      if (req.user?.accountType !== "collaborator") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+
+      next();
+    };
+
+    const verifyAdmin = async (req, res, next) => {
+      if (req.user?.accountType !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+
+      next();
+    };
+
+    // ----------------
 
     app.post("/api/subscriptions", async (req, res) => {
       const { subsInfo, user } = req.body;
@@ -552,19 +627,28 @@ async function run() {
     });
 
     // ___ GET APPLICATIONS
-    app.get("/api/founder/applications", async (req, res) => {
-      const query = {};
+    app.get(
+      "/api/founder/applications",
+      verifyToken,
+      verifyFounder,
+      async (req, res) => {
+        const query = {};
 
-      if (req.query.startupId) {
-        query.startupId = req.query.startupId;
-      }
+        if (req.query.startupId) {
+          query.startupId = req.query.startupId;
 
-      const result = await applicationsCollection
-        .find(query)
-        .sort({ _id: -1 })
-        .toArray();
-      res.send(result || {});
-    });
+          if (req.user._id.toString() !== req.query.startupId) {
+            return res.status(403).send({ message: "forbidden access" });
+          }
+        }
+
+        const result = await applicationsCollection
+          .find(query)
+          .sort({ _id: -1 })
+          .toArray();
+        res.send(result || {});
+      },
+    );
 
     // ─── 3. GET MY APPLICATIONS
     app.get("/api/my/applications", async (req, res) => {
@@ -789,7 +873,7 @@ async function run() {
       res.send(result || {});
     });
 
-    app.get("/api/users", async (req, res) => {
+    app.get("/api/users", verifyToken, verifyAdmin, async (req, res) => {
       const result = await usersCollection.find().sort({ _id: -1 }).toArray();
       res.send(result || {});
     });
