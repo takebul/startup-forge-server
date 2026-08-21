@@ -15,7 +15,7 @@ const logger = (req, res, next) => {
 const uri = process.env.MONGODB_URI;
 
 const app = express();
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 5000;
 
 app.use(
   cors({
@@ -45,47 +45,59 @@ async function run() {
     const bookmarksCollection = db.collection("bookmarks");
     const plansCollection = db.collection("plans");
     const sessionCollection = db.collection("session");
+    const notificationsCollection = db.collection("notifications");
 
-    // verification related
+    // =========================================================================
+    // REUSABLE NOTIFICATION HELPER FUNCTION
+    // =========================================================================
+    const createSystemNotification = async ({
+      recipientId = null,
+      recipientRole = "founder",
+      message,
+      type = "info",
+      link = "",
+    }) => {
+      try {
+        const doc = {
+          recipientId: recipientId ? String(recipientId) : null,
+          recipientRole,
+          message,
+          type,
+          link,
+          isRead: false,
+          createdAt: new Date(),
+        };
+        return await notificationsCollection.insertOne(doc);
+      } catch (err) {
+        console.error("Error creating notification:", err);
+      }
+    };
 
+    // =========================================================================
+    // AUTHENTICATION & ROLE VERIFICATION MIDDLEWARES
+    // =========================================================================
     const verifyToken = async (req, res, next) => {
-      console.log("headers", req.headers);
-
       const authHeader = req.headers?.authorization;
-
       if (!authHeader) {
         return res.status(401).send({ message: "unauthorized access" });
       }
 
       const token = authHeader.split(" ")[1];
-
       if (!token) {
         return res.status(401).send({ message: "unauthorized access" });
       }
 
-      const query = { token: token };
-
-      const session = await sessionCollection.findOne(query);
-
+      const session = await sessionCollection.findOne({ token: token });
       if (!session) {
         return res.status(401).send({ message: "unauthorized access" });
       }
 
-      const userId = session?.userId;
-
-      const userQuery = {
-        _id: userId,
-      };
-
-      const user = await usersCollection.findOne(userQuery);
-
+      const user = await usersCollection.findOne({ _id: session?.userId });
       if (!user) {
         return res.status(401).send({ message: "unauthorized access" });
       }
 
-      // set data in the req object
       req.user = user;
-
       next();
     };
 
@@ -93,7 +105,6 @@ async function run() {
       if (req.user?.accountType !== "founder") {
         return res.status(403).send({ message: "forbidden access" });
       }
-
       next();
     };
 
@@ -101,7 +112,6 @@ async function run() {
       if (req.user?.accountType !== "collaborator") {
         return res.status(403).send({ message: "forbidden access" });
       }
-
       next();
     };
 
@@ -109,43 +119,68 @@ async function run() {
       if (req.user?.accountType !== "admin") {
         return res.status(403).send({ message: "forbidden access" });
       }
-
       next();
     };
 
-    // ----------------
+    // =========================================================================
+    // SUBSCRIPTIONS & PLANS
+    // =========================================================================
+    // Helper to format plan IDs into readable titles
+    const formatPlanName = (planId) => {
+      if (!planId) return "Subscription Plan";
+      return String(planId)
+        .replace(/[-_]/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    };
 
     app.post("/api/subscriptions", async (req, res) => {
-      const { subsInfo, user } = req.body;
+      try {
+        const { subsInfo, user } = req.body;
 
-      const isExistSession = await paymentsCollection.findOne({
-        "subsInfo.session_id": subsInfo.session_id,
-      });
+        const isExistSession = await paymentsCollection.findOne({
+          "subsInfo.session_id": subsInfo.session_id,
+        });
 
-      if (isExistSession) {
-        return res.status(400).send({ message: "Session already exist" });
+        if (isExistSession) {
+          return res.status(400).send({ message: "Session already exists" });
+        }
+
+        const subscription_result = await paymentsCollection.insertOne({
+          ...subsInfo,
+          user: user?.name,
+          subscriptionAt: new Date(),
+        });
+
+        const update_user_result = await usersCollection.updateOne(
+          { email: subsInfo.email },
+          { $set: { plan: subsInfo.planId } },
+        );
+
+        // Format display data
+        const subscriberName =
+          user?.name || subsInfo.name || subsInfo.email || "A user";
+        const planTitle = formatPlanName(subsInfo.planId);
+        const formattedAmount = subsInfo.amount
+          ? `$${(subsInfo.amount / 100).toFixed(0)}`
+          : "";
+
+        // 🔥 Trigger Admin Notification
+        await createSystemNotification({
+          recipientRole: "admin",
+          message: `💳 Subscription Activated: ${subscriberName} upgraded to ${planTitle}${
+            formattedAmount ? ` (${formattedAmount})` : ""
+          }.`,
+          type: "subscription",
+          link: "/dashboard/admin/subscriptions",
+        });
+
+        res.send({ subscription_result, update_user_result });
+      } catch (error) {
+        console.error("Error processing subscription:", error);
+        res
+          .status(500)
+          .send({ error: error.message || "Failed to process subscription" });
       }
-
-      const subscription_result = await paymentsCollection.insertOne({
-        ...subsInfo,
-        user: user?.name,
-        subscriptionAt: new Date(),
-      });
-
-      const filter = { email: subsInfo.email };
-
-      const updateDocument = {
-        $set: {
-          plan: subsInfo.planId,
-        },
-      };
-
-      const update_user_result = await usersCollection.updateOne(
-        filter,
-        updateDocument,
-      );
-
-      res.send({ subscription_result, update_user_result });
     });
 
     app.get("/api/subscriptions", async (req, res) => {
@@ -156,7 +191,6 @@ async function run() {
       res.send(result);
     });
 
-    // plans
     app.get("/api/plans", async (req, res) => {
       const query = {};
       if (req.query.plan_id) {
@@ -166,18 +200,24 @@ async function run() {
       res.send(result);
     });
 
-    // ---------------------------------------------------------------------------
-    // 1. CREATE STARTUP
-    // ---------------------------------------------------------------------------
+    // =========================================================================
+    // 1. CREATE STARTUP (Founder Submits -> Notifies Admin)
+    // =========================================================================
     app.post("/api/startup", async (req, res) => {
       try {
         const data = req.body;
-        const startupName = data.startup_name || data.name;
+        const startupName =
+          data.startup_name || data.name || "Untitled Startup";
         const startupId = data.startupId || data.userId;
+        const founderEmail =
+          data.founder_email || data.founderEmail || "A founder";
 
-        const startup_result = await startupsCollection.insertOne(data);
+        const startup_result = await startupsCollection.insertOne({
+          ...data,
+          status: data.status || "Pending",
+          createdAt: new Date(),
+        });
 
-        // Update ALL matching opportunities if startupName exists
         let opportunity_result = null;
         if (startupId && startupName) {
           opportunity_result = await opportunitiesCollection.updateMany(
@@ -186,6 +226,14 @@ async function run() {
           );
         }
 
+        // Send notification to admin panel
+        await createSystemNotification({
+          recipientRole: "admin",
+          message: `🚀 New Startup Profile: '${startupName}' submitted by ${founderEmail} requires review.`,
+          type: "warning",
+          link: "/dashboard/admin/startups",
+        });
+
         res.status(201).json({ startup_result, opportunity_result });
       } catch (error) {
         console.error("Error creating startup:", error);
@@ -193,9 +241,9 @@ async function run() {
       }
     });
 
-    // ---------------------------------------------------------------------------
-    // 2. UPDATE STARTUP (Updates startup & syncs startupName in all opportunities)
-    // ---------------------------------------------------------------------------
+    // =========================================================================
+    // 2. UPDATE / RESUBMIT / APPROVE STARTUP (Bidirectional Notifications)
+    // =========================================================================
     app.patch("/api/startup/:id", async (req, res) => {
       try {
         const { id } = req.params;
@@ -205,61 +253,139 @@ async function run() {
           return res.status(400).json({ error: "Invalid Startup ID" });
         }
 
-        // 1. Fetch existing startup to get custom startupId if present
         const existingStartup = await startupsCollection.findOne({
           _id: new ObjectId(id),
         });
 
-        // 2. Update startup document in DB
-        const startup_result = await startupsCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: updateStartup },
-        );
-
-        // 3. Extract updated name and startupId references
-        const updatedName = updateStartup.startup_name || updateStartup.name;
-        const customStartupId =
-          updateStartup.startupId || existingStartup?.startupId;
-
-        // 4. Prepare fields to update in opportunitiesCollection
-        const opportunitySet = {};
-
-        if (updatedName) {
-          opportunitySet.startupName = updatedName;
+        if (!existingStartup) {
+          return res.status(404).json({ error: "Startup profile not found" });
         }
 
-        if (updateStartup.status !== undefined) {
-          opportunitySet.status = "Active";
+        const startupUpdatePayload = {
+          ...updateStartup,
+          updatedAt: new Date(),
+        };
+
+        const startup_result = await startupsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: startupUpdatePayload },
+        );
+
+        const updatedName =
+          updateStartup.startup_name ||
+          updateStartup.name ||
+          existingStartup.startup_name;
+        const customStartupId =
+          updateStartup.startupId || existingStartup?.startupId;
+        const updatedIndustry = updateStartup.industry;
+        const updatedLogo = updateStartup.logo;
+        const updatedStatus = updateStartup.status;
+        const founderRecipientId =
+          existingStartup.startupId ||
+          existingStartup.userId ||
+          existingStartup._id;
+        const founderEmail =
+          updateStartup.founder_email ||
+          existingStartup.founder_email ||
+          "A founder";
+
+        const opportunitySet = {
+          updatedAt: new Date(),
+        };
+
+        if (updatedName) opportunitySet.startupName = updatedName;
+        if (updatedIndustry) opportunitySet.industry = updatedIndustry;
+        if (updatedLogo) opportunitySet.startupLogo = updatedLogo;
+
+        if (updatedStatus !== undefined) {
+          opportunitySet.startupStatus = updatedStatus;
+          const statusLower = String(updatedStatus).toLowerCase();
+
+          if (statusLower === "approved" || updatedStatus === true) {
+            opportunitySet.status = "Active";
+          } else if (
+            statusLower === "rejected" ||
+            statusLower === "removed" ||
+            statusLower === "declined"
+          ) {
+            opportunitySet.status = "Closed";
+          } else if (
+            statusLower === "pending" ||
+            statusLower === "resubmitted"
+          ) {
+            opportunitySet.status = "Pending";
+          }
         }
 
         let update_opportunities = null;
+        const oppMatchConditions = [
+          { startupId: id },
+          { startupId: new ObjectId(id) },
+          ...(existingStartup?.startup_name
+            ? [{ startupName: existingStartup.startup_name }]
+            : []),
+          ...(customStartupId ? [{ startupId: customStartupId }] : []),
+          ...(customStartupId && ObjectId.isValid(customStartupId)
+            ? [{ startupId: new ObjectId(customStartupId) }]
+            : []),
+        ];
 
-        // 5. Update matching opportunities
-        if (Object.keys(opportunitySet).length > 0) {
+        if (Object.keys(opportunitySet).length > 1) {
           update_opportunities = await opportunitiesCollection.updateMany(
-            {
-              $or: [
-                { startupId: id },
-                { startupId: new ObjectId(id) },
-                ...(customStartupId ? [{ startupId: customStartupId }] : []),
-                ...(customStartupId && ObjectId.isValid(customStartupId)
-                  ? [{ startupId: new ObjectId(customStartupId) }]
-                  : []),
-              ],
-            },
+            { $or: oppMatchConditions },
             { $set: opportunitySet },
           );
         }
 
-        console.log(
-          "Updated opportunities count:",
-          update_opportunities?.modifiedCount,
-        );
+        // Notification Triggers
+        const statusLower = String(updatedStatus || "").toLowerCase();
 
-        res.json({ startup_result, update_opportunities });
+        if (
+          statusLower === "resubmitted" ||
+          updateStartup.resubmitted === true
+        ) {
+          // Founder resubmits -> Notify Admin
+          await createSystemNotification({
+            recipientRole: "admin",
+            message: `🔄 Resubmitted Profile: '${updatedName}' was updated and resubmitted by ${founderEmail} for verification.`,
+            type: "resubmitted",
+            link: "/dashboard/admin/startups",
+          });
+        } else if (statusLower === "approved" || updatedStatus === true) {
+          // Admin approves -> Notify Founder
+          await createSystemNotification({
+            recipientId: founderRecipientId,
+            recipientRole: "founder",
+            message: `🎉 Great news! Your startup profile for '${updatedName}' has been approved by Admin! Your open roles are now active.`,
+            type: "success",
+            link: "/dashboard/founder/my-startup",
+          });
+        } else if (
+          statusLower === "rejected" ||
+          statusLower === "removed" ||
+          statusLower === "declined"
+        ) {
+          // Admin rejects/removes -> Notify Founder
+          await createSystemNotification({
+            recipientId: founderRecipientId,
+            recipientRole: "founder",
+            message: `⚠️ Action Required: Your startup profile for '${updatedName}' was declined by Admin. Please update your details and resubmit.`,
+            type: "warning",
+            link: "/dashboard/founder/my-startup",
+          });
+        }
+
+        res.json({
+          success: true,
+          message: "Startup updated and notifications dispatched successfully",
+          startup_result,
+          update_opportunities,
+        });
       } catch (error) {
         console.error("Error updating startup:", error);
-        res.status(500).json({ error: error.message });
+        res
+          .status(500)
+          .json({ error: error.message || "Failed to update startup" });
       }
     });
 
@@ -273,22 +399,12 @@ async function run() {
 
     app.get("/api/my/startup", async (req, res) => {
       const query = {};
-
       if (req.query.startupId) {
         query.startupId = req.query.startupId;
       }
-
       const startup_result = await startupsCollection.find(query).toArray();
       res.send(startup_result || {});
     });
-
-    // app.get("/api/startups", async (req, res) => {
-    //   const result = await startupsCollection
-    //     .find()
-    //     .sort({ _id: -1 })
-    //     .toArray();
-    //   res.send(result || {});
-    // });
 
     app.get("/api/startups", async (req, res) => {
       try {
@@ -298,7 +414,6 @@ async function run() {
 
         let query = {};
 
-        // 1. Search by startup name or description
         if (search.trim()) {
           query.$or = [
             { startup_name: { $regex: search.trim(), $options: "i" } },
@@ -307,7 +422,6 @@ async function run() {
           ];
         }
 
-        // 2. Filter by Industry using MongoDB $in
         if (industry && industry !== "All") {
           const industriesArray = industry
             .split(",")
@@ -321,7 +435,6 @@ async function run() {
           }
         }
 
-        // 3. Filter by Funding Stage (Optional)
         if (funding_stage && funding_stage !== "All") {
           query.funding_stage = {
             $regex: `^${funding_stage.trim()}$`,
@@ -340,7 +453,6 @@ async function run() {
 
         const data = await cursor.toArray();
 
-        // Returns array directly if no query parameters, or structured pagination
         if (
           !req.query.page &&
           !req.query.limit &&
@@ -374,27 +486,56 @@ async function run() {
       res.send(result || {});
     });
 
-    // ---------------------
-    // opportunities
-    // ------------------
-
+    // =========================================================================
+    // 1. OPPORTUNITIES
+    // =========================================================================
     app.post("/api/opportunity", async (req, res) => {
-      const data = req.body;
+      try {
+        const data = req.body;
 
-      const result = await opportunitiesCollection.insertOne({ ...data });
-      res.send(result || {});
+        const newOpportunity = {
+          ...data,
+          status: data.status || "Active",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        const result = await opportunitiesCollection.insertOne(newOpportunity);
+        res.status(201).json(result);
+      } catch (error) {
+        console.error("Error creating opportunity:", error);
+        res
+          .status(500)
+          .json({ error: error.message || "Failed to create opportunity" });
+      }
     });
 
     app.patch("/api/opportunity/:id", async (req, res) => {
-      const { id } = req.params;
-      const { _id, ...updateOpportunity } = req.body;
+      try {
+        const { id } = req.params;
+        const { _id, ...updateOpportunity } = req.body;
 
-      const result = await opportunitiesCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: updateOpportunity },
-      );
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({ error: "Invalid Opportunity ID" });
+        }
 
-      res.send(result || {});
+        const result = await opportunitiesCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              ...updateOpportunity,
+              updatedAt: new Date(),
+            },
+          },
+        );
+
+        res.json({ success: true, result });
+      } catch (error) {
+        console.error("Error updating opportunity:", error);
+        res
+          .status(500)
+          .json({ error: error.message || "Failed to update opportunity" });
+      }
     });
 
     app.delete("/api/opportunity/:id", async (req, res) => {
@@ -407,44 +548,15 @@ async function run() {
 
     app.get("/api/my/opportunities", async (req, res) => {
       const query = {};
-
       if (req.query.startupId) {
         query.startupId = req.query.startupId;
       }
-
       const result = await opportunitiesCollection
         .find(query)
         .sort({ _id: -1 })
         .toArray();
       res.send(result || {});
     });
-
-    // app.get("/api/opportunities", async (req, res) => {
-    //   const searchTitleAndSkills = req.query.search || "";
-    //   let query = {};
-
-    //   query.$or = [
-    //     { roleTitle: { $regex: searchTitleAndSkills, $options: "i" } },
-    //     { requiredSkills: { $regex: searchTitleAndSkills, $options: "i" } },
-    //   ];
-
-    //   const limit = Number(req.query.limit);
-    //   const page = Number(req.query.page) || 1;
-
-    //   const total_data = await opportunitiesCollection.countDocuments();
-    //   const total_page = Math.ceil(total_data / limit);
-
-    //   const skip = (page - 1) * limit;
-
-    //   const data = await opportunitiesCollection
-    //     .find(query)
-    //     .skip(skip)
-    //     .limit(limit)
-    //     .sort({ _id: -1 })
-    //     .toArray();
-
-    //   res.send({ data, total_page, page, skip, total_data });
-    // });
 
     app.get("/api/opportunities", async (req, res) => {
       try {
@@ -456,7 +568,6 @@ async function run() {
 
         let queryConditions = [];
 
-        // 1. Search by Role Title or Skills
         if (search.trim()) {
           queryConditions.push({
             $or: [
@@ -466,7 +577,6 @@ async function run() {
           });
         }
 
-        // 2. Filter by Work Type using MongoDB $in
         if (workType && workType !== "All") {
           const workTypesArray = workType
             .split(",")
@@ -482,7 +592,6 @@ async function run() {
           }
         }
 
-        // 3. Filter by Industry using MongoDB $in (Matches startup industries)
         if (industry && industry !== "All") {
           const industriesArray = industry
             .split(",")
@@ -494,7 +603,6 @@ async function run() {
               (ind) => new RegExp(`^${ind}$`, "i"),
             );
 
-            // Find all startups that belong to the requested industries
             const matchingStartups = await startupsCollection
               .find({ industry: { $in: industryRegexes } })
               .toArray();
@@ -534,7 +642,6 @@ async function run() {
           }
         }
 
-        // Build the final combined query
         const query =
           queryConditions.length > 0 ? { $and: queryConditions } : {};
 
@@ -584,10 +691,9 @@ async function run() {
       res.send(data || {});
     });
 
-    // ------------------
-    // applications
-    //---------------
-
+    // =========================================================================
+    // 3. APPLICATIONS (Collaborator Applies -> Notifies Founder)
+    // =========================================================================
     app.post("/api/application", async (req, res) => {
       try {
         const data = req.body;
@@ -595,38 +701,121 @@ async function run() {
           ...data,
           status: "Pending",
           appliedDate: new Date().toISOString().split("T")[0],
+          createdAt: new Date(),
         };
 
         const result = await applicationsCollection.insertOne(newApplication);
-        res.status(201).send(result);
+
+        // 🔥 NOTIFY FOUNDER: New Collaborator Applied
+        const founderRecipientId = data.startupId || data.founderId;
+        const applicantDisplayName =
+          data.applicantName || data.applicantEmail || "A collaborator";
+        const roleTitle = data.opportunityTitle || "Collaborator Role";
+
+        if (founderRecipientId) {
+          await createSystemNotification({
+            recipientId: String(founderRecipientId),
+            recipientRole: "founder",
+            message: `📥 New Application: ${applicantDisplayName} applied for '${roleTitle}'.`,
+            type: "info",
+            link: "/dashboard/founder/my-applications",
+          });
+        }
+
+        res.status(201).json(result);
       } catch (error) {
         console.error("Error submitting application:", error);
-        res.status(500).send({ error: error.message });
+        res
+          .status(500)
+          .json({ error: error.message || "Failed to submit application" });
       }
     });
 
+    // =========================================================================
+    // 3. UPDATE APPLICATION (Founder Accepts/Rejects -> Notifies Collaborator)
+    // =========================================================================
     app.patch("/api/application/:id", async (req, res) => {
       try {
         const { id } = req.params;
-        const { status } = req.body; // Extract status from request body
+        const { status } = req.body;
 
-        if (!status) {
-          return res.status(400).send({ error: "Status is required" });
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({ error: "Invalid Application ID" });
         }
 
+        if (!status) {
+          return res.status(400).json({ error: "Status is required" });
+        }
+
+        // 1. Fetch existing application details to identify collaborator and role info
+        const existingApp = await applicationsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!existingApp) {
+          return res.status(404).json({ error: "Application not found" });
+        }
+
+        // 2. Update status in DB
         const result = await applicationsCollection.updateOne(
           { _id: new ObjectId(id) },
-          { $set: { status } },
+          {
+            $set: {
+              status,
+              updatedAt: new Date(),
+            },
+          },
         );
 
-        res.send(result || {});
+        // 3. Extract collaborator and role details
+        const collaboratorRecipientId =
+          existingApp.collaboratorId || existingApp.userId;
+        const roleTitle =
+          existingApp.opportunityTitle || existingApp.roleTitle || "Role";
+        const startupName = existingApp.startupName || "the startup";
+        const normalizedStatus = String(status).toLowerCase();
+
+        // =======================================================================
+        // 🔥 NOTIFY COLLABORATOR BASED ON FOUNDER DECISION
+        // =======================================================================
+        if (collaboratorRecipientId) {
+          // CASE A: Founder Accepts Application
+          if (
+            normalizedStatus === "accepted" ||
+            normalizedStatus === "approved"
+          ) {
+            await createSystemNotification({
+              recipientId: String(collaboratorRecipientId),
+              recipientRole: "collaborator",
+              message: `🎉 Congratulations! Your application for '${roleTitle}' at '${startupName}' was Accepted! Check your dashboard for next steps.`,
+              type: "success",
+              link: "/dashboard/collaborator/my-applications",
+            });
+          }
+          // CASE B: Founder Rejects Application
+          else if (
+            normalizedStatus === "rejected" ||
+            normalizedStatus === "declined"
+          ) {
+            await createSystemNotification({
+              recipientId: String(collaboratorRecipientId),
+              recipientRole: "collaborator",
+              message: `📋 Application Update: The team at '${startupName}' decided not to proceed with your application for '${roleTitle}' at this time.`,
+              type: "warning",
+              link: "/dashboard/collaborator/my-applications",
+            });
+          }
+        }
+
+        res.json({ success: true, result });
       } catch (err) {
         console.error("Error updating application status:", err);
-        res.status(500).send({ error: err.message });
+        res
+          .status(500)
+          .json({ error: err.message || "Failed to update application" });
       }
     });
 
-    // ___ GET APPLICATIONS
     app.get(
       "/api/founder/applications",
       verifyToken,
@@ -650,13 +839,11 @@ async function run() {
       },
     );
 
-    // ─── 3. GET MY APPLICATIONS
     app.get("/api/my/applications", async (req, res) => {
       try {
         const { collaboratorId, userId, opportunityId } = req.query;
         const query = {};
 
-        // Filter by user ID
         const activeUserId = collaboratorId || userId;
         if (activeUserId) {
           query.$or = [
@@ -665,18 +852,15 @@ async function run() {
           ];
         }
 
-        // FIX: Changed applicationId -> opportunityId
         if (opportunityId) {
           query.opportunityId = opportunityId;
         }
 
-        // MongoDB Aggregation Pipeline ($lookup to join opportunities collection)
         const result = await applicationsCollection
           .aggregate([
             { $match: query },
             {
               $addFields: {
-                // Safely convert string opportunityId to ObjectId if valid
                 convertedOppId: {
                   $cond: {
                     if: {
@@ -718,7 +902,9 @@ async function run() {
       res.send(result || {});
     });
 
-    // ─── 1. CREATE BOOKMARK ────────────────────────────────────────────────────────
+    // =========================================================================
+    // BOOKMARKS
+    // =========================================================================
     app.post("/api/bookmark", async (req, res) => {
       try {
         const {
@@ -741,7 +927,6 @@ async function run() {
         const oppIdStr = String(opportunityId);
         const userIdStr = String(userId);
 
-        // Check if bookmark already exists
         const existing = await bookmarksCollection.findOne({
           opportunityId: oppIdStr,
           userId: userIdStr,
@@ -751,7 +936,6 @@ async function run() {
           return res.json(existing);
         }
 
-        // Insert rich bookmark document
         const bookmarkData = {
           opportunityId: oppIdStr,
           userId: userIdStr,
@@ -772,10 +956,9 @@ async function run() {
       }
     });
 
-    // ─── 2. DELETE BOOKMARK ────────────────────────────────────────────────────────
     app.delete("/api/bookmark/:id", async (req, res) => {
       try {
-        const { id } = req.params; // opportunityId
+        const { id } = req.params;
         const { userId } = req.query;
 
         const query = {
@@ -797,7 +980,6 @@ async function run() {
       }
     });
 
-    // ─── 3. GET USER BOOKMARKS ────────────────────────────────────────────────────
     app.get("/api/my/bookmarks", async (req, res) => {
       try {
         const { userId } = req.query;
@@ -818,10 +1000,9 @@ async function run() {
       }
     });
 
-    // ----------------
-    // user
-    // ------------
-
+    // =========================================================================
+    // USERS
+    // =========================================================================
     app.get("/api/user/profile/:id", async (req, res) => {
       const { id } = req.params;
       const result = await usersCollection.findOne({ _id: new ObjectId(id) });
@@ -878,13 +1059,90 @@ async function run() {
       res.send(result || {});
     });
 
+    // =========================================================================
+    // 4. NOTIFICATIONS ENDPOINTS
+    // =========================================================================
+    app.get("/api/notifications", async (req, res) => {
+      try {
+        const { userId, role } = req.query;
+        let query = {};
+
+        if (role === "admin") {
+          query = {
+            $or: [{ recipientRole: "admin" }, { recipientId: String(userId) }],
+          };
+        } else {
+          query = { recipientId: String(userId) };
+        }
+
+        const notifications = await notificationsCollection
+          .find(query)
+          .sort({ createdAt: -1 })
+          .limit(30)
+          .toArray();
+
+        const unreadCount = await notificationsCollection.countDocuments({
+          ...query,
+          isRead: false,
+        });
+
+        res.json({ notifications, unreadCount });
+      } catch (error) {
+        console.error("Failed to fetch notifications:", error);
+        res.status(500).json({ error: "Failed to fetch notifications" });
+      }
+    });
+
+    app.patch("/api/notifications/mark-all-read", async (req, res) => {
+      try {
+        const { userId, role } = req.body;
+        let query = {};
+
+        if (role === "admin") {
+          query = {
+            $or: [{ recipientRole: "admin" }, { recipientId: String(userId) }],
+          };
+        } else {
+          query = { recipientId: String(userId) };
+        }
+
+        const result = await notificationsCollection.updateMany(query, {
+          $set: { isRead: true },
+        });
+
+        res.json({ success: true, modifiedCount: result.modifiedCount });
+      } catch (error) {
+        console.error("Failed to mark all as read:", error);
+        res.status(500).json({ error: "Failed to update notifications" });
+      }
+    });
+
+    app.patch("/api/notifications/:id/read", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({ error: "Invalid Notification ID" });
+        }
+
+        const result = await notificationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { isRead: true } },
+        );
+
+        res.json({ success: true, modifiedCount: result.modifiedCount });
+      } catch (error) {
+        console.error("Failed to mark notification as read:", error);
+        res.status(500).json({ error: "Failed to update notification" });
+      }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
     );
   } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
+    // Keep connection alive
   }
 }
 run().catch(console.dir);
