@@ -156,7 +156,6 @@ async function run() {
           { $set: { plan: subsInfo.planId } },
         );
 
-        // Format display data
         const subscriberName =
           user?.name || subsInfo.name || subsInfo.email || "A user";
         const planTitle = formatPlanName(subsInfo.planId);
@@ -164,14 +163,14 @@ async function run() {
           ? `$${(subsInfo.amount / 100).toFixed(0)}`
           : "";
 
-        // 🔥 Trigger Admin Notification
+        // 🔥 Send notification with the correct transactions route
         await createSystemNotification({
           recipientRole: "admin",
           message: `💳 Subscription Activated: ${subscriberName} upgraded to ${planTitle}${
             formattedAmount ? ` (${formattedAmount})` : ""
           }.`,
           type: "subscription",
-          link: "/dashboard/admin/subscriptions",
+          link: "/dashboard/admin/transactions", // Updated to existing transactions route
         });
 
         res.send({ subscription_result, update_user_result });
@@ -706,7 +705,7 @@ async function run() {
 
         const result = await applicationsCollection.insertOne(newApplication);
 
-        // 🔥 NOTIFY FOUNDER: New Collaborator Applied
+        // 🔥 Send notification with the correct founder applications route
         const founderRecipientId = data.startupId || data.founderId;
         const applicantDisplayName =
           data.applicantName || data.applicantEmail || "A collaborator";
@@ -718,7 +717,7 @@ async function run() {
             recipientRole: "founder",
             message: `📥 New Application: ${applicantDisplayName} applied for '${roleTitle}'.`,
             type: "info",
-            link: "/dashboard/founder/my-applications",
+            link: "/dashboard/founder/applications", // Updated to /dashboard/founder/applications
           });
         }
 
