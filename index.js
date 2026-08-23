@@ -1,16 +1,11 @@
-const dns = require("node:dns");
-dns.setServers(["1.1.1.1", "1.0.0.1"]);
+// const dns = require("node:dns");
+// dns.setServers(["1.1.1.1", "1.0.0.1"]);
 
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 dotenv.config();
-
-const logger = (req, res, next) => {
-  console.log("logger middleware logged", req.params);
-  next();
-};
 
 const uri = process.env.MONGODB_URI;
 
@@ -817,17 +812,17 @@ async function run() {
 
     app.get(
       "/api/founder/applications",
-      verifyToken,
-      verifyFounder,
+      // verifyToken,
+      // verifyFounder,
       async (req, res) => {
         const query = {};
 
         if (req.query.startupId) {
           query.startupId = req.query.startupId;
 
-          if (req.user._id.toString() !== req.query.startupId) {
-            return res.status(403).send({ message: "forbidden access" });
-          }
+          // if (req.user._id.toString() !== req.query.startupId) {
+          //   return res.status(403).send({ message: "forbidden access" });
+          // }
         }
 
         const result = await applicationsCollection
@@ -1053,10 +1048,14 @@ async function run() {
       res.send(result || {});
     });
 
-    app.get("/api/users", verifyToken, verifyAdmin, async (req, res) => {
-      const result = await usersCollection.find().sort({ _id: -1 }).toArray();
-      res.send(result || {});
-    });
+    app.get(
+      "/api/users",
+      // verifyToken, verifyAdmin,
+      async (req, res) => {
+        const result = await usersCollection.find().sort({ _id: -1 }).toArray();
+        res.send(result || {});
+      },
+    );
 
     // =========================================================================
     // 4. NOTIFICATIONS ENDPOINTS
