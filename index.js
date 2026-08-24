@@ -462,7 +462,7 @@ app.get("/api/featured/startups", async (req, res) => {
   const data = await startupsCollection
     .find()
     .sort({ _id: -1 })
-    .limit(8)
+    .limit(5)
     .toArray();
   res.send(data || {});
 });
@@ -672,7 +672,7 @@ app.get("/api/featured/opportunities", async (req, res) => {
   const data = await opportunitiesCollection
     .find()
     .sort({ _id: -1 })
-    .limit(8)
+    .limit(5)
     .toArray();
   res.send(data || {});
 });
