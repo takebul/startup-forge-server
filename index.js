@@ -183,7 +183,7 @@ app.post("/api/subscriptions", async (req, res) => {
   }
 });
 
-app.get("/api/subscriptions", async (req, res) => {
+app.get("/api/subscriptions", verifyToken, verifyAdmin, async (req, res) => {
   const result = await paymentsCollection.find().sort({ _id: -1 }).toArray();
   res.send(result);
 });
@@ -386,7 +386,7 @@ app.delete("/api/startup/:id", async (req, res) => {
   res.send(result || {});
 });
 
-app.get("/api/my/startup", async (req, res) => {
+app.get("/api/my/startup", verifyToken, verifyFounder, async (req, res) => {
   const query = {};
   if (req.query.startupId) {
     query.startupId = req.query.startupId;
@@ -535,17 +535,22 @@ app.delete("/api/opportunity/:id", async (req, res) => {
   res.send(result || {});
 });
 
-app.get("/api/my/opportunities", async (req, res) => {
-  const query = {};
-  if (req.query.startupId) {
-    query.startupId = req.query.startupId;
-  }
-  const result = await opportunitiesCollection
-    .find(query)
-    .sort({ _id: -1 })
-    .toArray();
-  res.send(result || {});
-});
+app.get(
+  "/api/my/opportunities",
+  verifyToken,
+  verifyFounder,
+  async (req, res) => {
+    const query = {};
+    if (req.query.startupId) {
+      query.startupId = req.query.startupId;
+    }
+    const result = await opportunitiesCollection
+      .find(query)
+      .sort({ _id: -1 })
+      .toArray();
+    res.send(result || {});
+  },
+);
 
 app.get("/api/opportunities", async (req, res) => {
   try {
@@ -822,57 +827,65 @@ app.get(
   },
 );
 
-app.get("/api/my/applications", async (req, res) => {
-  try {
-    const { collaboratorId, userId, opportunityId } = req.query;
-    const query = {};
+app.get(
+  "/api/my/applications",
+  verifyToken,
+  verifyCollaborator,
+  async (req, res) => {
+    try {
+      const { collaboratorId, userId, opportunityId } = req.query;
+      const query = {};
 
-    const activeUserId = collaboratorId || userId;
-    if (activeUserId) {
-      query.$or = [{ collaboratorId: activeUserId }, { userId: activeUserId }];
-    }
+      const activeUserId = collaboratorId || userId;
+      if (activeUserId) {
+        query.$or = [
+          { collaboratorId: activeUserId },
+          { userId: activeUserId },
+        ];
+      }
 
-    if (opportunityId) {
-      query.opportunityId = opportunityId;
-    }
+      if (opportunityId) {
+        query.opportunityId = opportunityId;
+      }
 
-    const result = await applicationsCollection
-      .aggregate([
-        { $match: query },
-        {
-          $addFields: {
-            convertedOppId: {
-              $cond: {
-                if: {
-                  $and: [
-                    { $eq: [{ $type: "$opportunityId" }, "string"] },
-                    { $eq: [{ $strLenCP: "$opportunityId" }, 24] },
-                  ],
+      const result = await applicationsCollection
+        .aggregate([
+          { $match: query },
+          {
+            $addFields: {
+              convertedOppId: {
+                $cond: {
+                  if: {
+                    $and: [
+                      { $eq: [{ $type: "$opportunityId" }, "string"] },
+                      { $eq: [{ $strLenCP: "$opportunityId" }, 24] },
+                    ],
+                  },
+                  then: { $toObjectId: "$opportunityId" },
+                  else: "$opportunityId",
                 },
-                then: { $toObjectId: "$opportunityId" },
-                else: "$opportunityId",
               },
             },
           },
-        },
-        {
-          $lookup: {
-            from: "opportunities",
-            localField: "convertedOppId",
-            foreignField: "_id",
-            as: "opportunityDetails",
+          {
+            $lookup: {
+              from: "opportunities",
+              localField: "convertedOppId",
+              foreignField: "_id",
+              as: "opportunityDetails",
+            },
           },
-        },
-        { $sort: { _id: -1 } },
-      ])
-      .toArray();
+          { $sort: { _id: -1 } },
+        ])
+        .toArray();
 
-    res.send(result || []);
-  } catch (error) {
-    console.error("Error fetching applications:", error);
-    res.status(500).send({ error: error.message });
-  }
-});
+      res.send(result || []);
+    } catch (error) {
+      console.error("Error fetching applications:", error);
+      res.status(500).send({ error: error.message });
+    }
+  },
+);
 
 app.delete("/api/application/:id", async (req, res) => {
   const { id } = req.params;
@@ -960,30 +973,35 @@ app.delete("/api/bookmark/:id", async (req, res) => {
   }
 });
 
-app.get("/api/my/bookmarks", async (req, res) => {
-  try {
-    const { userId } = req.query;
+app.get(
+  "/api/my/bookmarks",
+  verifyToken,
+  verifyCollaborator,
+  async (req, res) => {
+    try {
+      const { userId } = req.query;
 
-    if (!userId) {
-      return res.json([]);
+      if (!userId) {
+        return res.json([]);
+      }
+
+      const result = await bookmarksCollection
+        .find({ userId: String(userId) })
+        .sort({ _id: -1 })
+        .toArray();
+
+      res.json(result || []);
+    } catch (error) {
+      console.error("Error fetching bookmarks:", error);
+      res.status(500).json({ error: error.message });
     }
-
-    const result = await bookmarksCollection
-      .find({ userId: String(userId) })
-      .sort({ _id: -1 })
-      .toArray();
-
-    res.json(result || []);
-  } catch (error) {
-    console.error("Error fetching bookmarks:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+  },
+);
 
 // =========================================================================
 // USERS
 // =========================================================================
-app.get("/api/user/profile/:id", async (req, res) => {
+app.get("/api/user/profile/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
   const result = await usersCollection.findOne({ _id: new ObjectId(id) });
   res.send(result || {});
@@ -1042,7 +1060,7 @@ app.get("/api/users", verifyToken, verifyAdmin, async (req, res) => {
 // =========================================================================
 // 4. NOTIFICATIONS ENDPOINTS
 // =========================================================================
-app.get("/api/notifications", async (req, res) => {
+app.get("/api/notifications", verifyToken, async (req, res) => {
   try {
     const { userId, role } = req.query;
     let query = {};
