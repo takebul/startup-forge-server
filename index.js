@@ -7,11 +7,6 @@ const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 dotenv.config();
 
-const logger = (req, res, next) => {
-  console.log("logger middleware logged", req.params);
-  next();
-};
-
 const uri = process.env.MONGODB_URI;
 
 const app = express();
@@ -830,7 +825,7 @@ app.get(
 app.get(
   "/api/my/applications",
   verifyToken,
-  verifyCollaborator,
+  verifyCollaborator || verifyFounder || verifyAdmin,
   async (req, res) => {
     try {
       const { collaboratorId, userId, opportunityId } = req.query;
@@ -1052,10 +1047,15 @@ app.patch("/api/user/:id", async (req, res) => {
   res.send(result || {});
 });
 
-app.get("/api/users", verifyToken, verifyAdmin, async (req, res) => {
-  const result = await usersCollection.find().sort({ _id: -1 }).toArray();
-  res.send(result || {});
-});
+app.get(
+  "/api/users",
+  verifyToken,
+  verifyAdmin || verifyFounder || verifyCollaborator,
+  async (req, res) => {
+    const result = await usersCollection.find().sort({ _id: -1 }).toArray();
+    res.send(result || {});
+  },
+);
 
 // =========================================================================
 // 4. NOTIFICATIONS ENDPOINTS
