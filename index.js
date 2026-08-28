@@ -153,6 +153,56 @@ const sanitizeUser = (user) => {
 const sanitizeUsers = (users) =>
   Array.isArray(users) ? users.map(sanitizeUser) : sanitizeUser(users);
 
+// ---------------------------------------------------------------------------
+// Founder profile enrichment for public startup / opportunity reads.
+//
+// The full users collection is admin-only, so public pages can never look up a
+// founder there. Instead we denormalise the founder's PUBLIC profile (name,
+// image, bio — never password/token/email-only) onto the startup/opportunity
+// document. New records are stamped at write time from the session; existing
+// records are enriched here at read time from the founder's user document.
+// ---------------------------------------------------------------------------
+
+// Copy public founder fields from a user doc onto a startup/opportunity doc.
+const enrichFounder = (doc, founderUser) => {
+  if (!doc || !founderUser) return doc;
+  const safe = { ...doc };
+  if (!safe.founder_name && founderUser.name) safe.founder_name = founderUser.name;
+  if (!safe.founder_image && founderUser.image) safe.founder_image = founderUser.image;
+  if (!safe.founder_bio && founderUser.bio) safe.founder_bio = founderUser.bio;
+  if (!safe.founder_email && founderUser.email) safe.founder_email = founderUser.email;
+  return safe;
+};
+
+// The user id that owns a startup / opportunity document.
+const founderIdOf = (doc) =>
+  doc && (doc.founderId || doc.startupId || doc.userId || "");
+
+// Enrich a single doc by looking up its founder (best-effort; never throws).
+const enrichFounderById = async (doc) => {
+  if (!doc) return doc;
+  const founderId = founderIdOf(doc);
+  if (!founderId || !ObjectId.isValid(founderId)) return doc;
+  const founderUser = await usersCollection.findOne({
+    _id: new ObjectId(founderId),
+  });
+  return enrichFounder(doc, founderUser);
+};
+
+// Enrich many docs with one batched users lookup (avoids N+1 queries).
+const enrichFounders = async (docs) => {
+  if (!Array.isArray(docs) || docs.length === 0) return docs;
+  const ids = [...new Set(docs.map(founderIdOf).filter(Boolean))].filter((x) =>
+    ObjectId.isValid(x),
+  );
+  if (ids.length === 0) return docs;
+  const founderUsers = await usersCollection
+    .find({ _id: { $in: ids.map((id) => new ObjectId(id)) } })
+    .toArray();
+  const byId = new Map(founderUsers.map((u) => [String(u._id), u]));
+  return docs.map((doc) => enrichFounder(doc, byId.get(String(founderIdOf(doc)))));
+};
+
 // =========================================================================
 // SUBSCRIPTIONS & PLANS
 // =========================================================================
@@ -241,6 +291,10 @@ app.post(
       if (getUserRole(req.user) !== "admin") {
         data.startupId = String(req.user._id);
         data.userId = String(req.user._id);
+        // Denormalise the founder's public profile so public pages can render it
+        data.founder_name = req.user.name;
+        data.founder_image = req.user.image;
+        data.founder_email = req.user.email;
       }
       const startupName = data.startup_name || data.name || "Untitled Startup";
       const startupId = data.startupId || data.userId;
@@ -311,6 +365,13 @@ app.patch("/api/startup/:id", verifyToken, async (req, res) => {
       ...updateStartup,
       updatedAt: new Date(),
     };
+
+    // When the owner refreshes their startup, keep the public founder profile in sync
+    if (!isAdmin && isOwner) {
+      startupUpdatePayload.founder_name = req.user.name;
+      startupUpdatePayload.founder_image = req.user.image;
+      startupUpdatePayload.founder_email = req.user.email;
+    }
 
     const startup_result = await startupsCollection.updateOne(
       { _id: new ObjectId(id) },
@@ -509,7 +570,7 @@ app.get("/api/startups", async (req, res) => {
       cursor.skip(skip).limit(limit);
     }
 
-    const data = await cursor.toArray();
+    const data = await enrichFounders(await cursor.toArray());
 
     if (
       !req.query.page &&
@@ -528,19 +589,23 @@ app.get("/api/startups", async (req, res) => {
 });
 
 app.get("/api/featured/startups", async (req, res) => {
-  const data = await startupsCollection
-    .find()
-    .sort({ _id: -1 })
-    .limit(5)
-    .toArray();
+  const data = await enrichFounders(
+    await startupsCollection
+      .find()
+      .sort({ _id: -1 })
+      .limit(5)
+      .toArray(),
+  );
   res.send(data || {});
 });
 
 app.get("/api/startup/:id", async (req, res) => {
   const { id } = req.params;
-  const result = await startupsCollection.findOne({
-    _id: new ObjectId(id),
-  });
+  const result = await enrichFounderById(
+    await startupsCollection.findOne({
+      _id: new ObjectId(id),
+    }),
+  );
   res.send(result || {});
 });
 
@@ -558,6 +623,10 @@ app.post(
       // The authenticated founder owns every role they post
       if (getUserRole(req.user) !== "admin") {
         data.startupId = String(req.user._id);
+        // Denormalise the founder's public profile so public pages can render it
+        data.founder_name = req.user.name;
+        data.founder_image = req.user.image;
+        data.founder_email = req.user.email;
       }
 
       const newOpportunity = {
@@ -607,6 +676,14 @@ app.patch("/api/opportunity/:id", verifyToken, async (req, res) => {
       {
         $set: {
           ...updateOpportunity,
+          // Keep the public founder profile in sync on owner edits
+          ...(!isAdmin && isOwner
+            ? {
+                founder_name: req.user.name,
+                founder_image: req.user.image,
+                founder_email: req.user.email,
+              }
+            : {}),
           updatedAt: new Date(),
         },
       },
@@ -749,12 +826,14 @@ app.get("/api/opportunities", async (req, res) => {
     const total_page = Math.ceil(total_data / limit) || 1;
     const skip = (page - 1) * limit;
 
-    const data = await opportunitiesCollection
-      .find(query)
-      .skip(skip)
-      .limit(limit)
-      .sort({ _id: -1 })
-      .toArray();
+    const data = await enrichFounders(
+      await opportunitiesCollection
+        .find(query)
+        .skip(skip)
+        .limit(limit)
+        .sort({ _id: -1 })
+        .toArray(),
+    );
 
     res.send({ data, total_page, page, skip, total_data });
   } catch (error) {
@@ -771,9 +850,11 @@ app.get("/api/opportunity/:id", async (req, res) => {
       return res.status(400).send({ error: "Invalid Opportunity ID" });
     }
 
-    const result = await opportunitiesCollection.findOne({
-      _id: new ObjectId(id),
-    });
+    const result = await enrichFounderById(
+      await opportunitiesCollection.findOne({
+        _id: new ObjectId(id),
+      }),
+    );
 
     res.send(result || {});
   } catch (error) {
@@ -783,11 +864,13 @@ app.get("/api/opportunity/:id", async (req, res) => {
 });
 
 app.get("/api/featured/opportunities", async (req, res) => {
-  const data = await opportunitiesCollection
-    .find()
-    .sort({ _id: -1 })
-    .limit(5)
-    .toArray();
+  const data = await enrichFounders(
+    await opportunitiesCollection
+      .find()
+      .sort({ _id: -1 })
+      .limit(5)
+      .toArray(),
+  );
   res.send(data || {});
 });
 
