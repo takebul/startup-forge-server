@@ -97,26 +97,61 @@ const verifyToken = async (req, res, next) => {
   next();
 };
 
-const verifyFounder = async (req, res, next) => {
-  if (req.user?.accountType !== "founder") {
-    return res.status(403).send({ message: "forbidden access" });
-  }
-  next();
+// Resolve the user's effective role. Mirrors the client's persona logic: an
+// admin may be stored with either accountType "admin" or role "admin".
+const getUserRole = (user) => {
+  if (!user) return null;
+  const accountType = String(user.accountType || "").toLowerCase();
+  const role = String(user.role || "").toLowerCase();
+  if (accountType === "admin" || role === "admin") return "admin";
+  if (accountType) return accountType;
+  return role || null;
 };
 
-const verifyCollaborator = async (req, res, next) => {
-  if (req.user?.accountType !== "collaborator") {
-    return res.status(403).send({ message: "forbidden access" });
-  }
-  next();
+// The authenticated user's stable id as a string (matches the startupId / collaboratorId fields)
+const userIdStr = (user) => String(user?._id || user?.id || "");
+
+// Require the authenticated user to have one of the given roles.
+// IMPORTANT: this must be invoked as requireAnyRole("founder", "admin"), never as
+// "verifyA || verifyB" — the || operator returns the first function and silently
+// skips every other check, which is how these routes were left wide open before.
+const requireAnyRole =
+  (...roles) =>
+  (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).send({ message: "unauthorized access" });
+    }
+    if (!roles.includes(getUserRole(req.user))) {
+      return res.status(403).send({ message: "forbidden access" });
+    }
+    next();
+  };
+
+const verifyFounder = requireAnyRole("founder");
+const verifyCollaborator = requireAnyRole("collaborator");
+const verifyAdmin = requireAnyRole("admin");
+
+// Fields that must never leave the server inside a user document
+const sensitiveUserFields = [
+  "password",
+  "hashedPassword",
+  "passwordHash",
+  "token",
+  "verificationToken",
+  "sessionToken",
+  "__v",
+];
+
+// Remove sensitive fields from a user document before sending it to a client
+const sanitizeUser = (user) => {
+  if (!user) return user;
+  const safe = { ...user };
+  sensitiveUserFields.forEach((field) => delete safe[field]);
+  return safe;
 };
 
-const verifyAdmin = async (req, res, next) => {
-  if (req.user?.accountType !== "admin") {
-    return res.status(403).send({ message: "forbidden access" });
-  }
-  next();
-};
+const sanitizeUsers = (users) =>
+  Array.isArray(users) ? users.map(sanitizeUser) : sanitizeUser(users);
 
 // =========================================================================
 // SUBSCRIPTIONS & PLANS
@@ -129,7 +164,7 @@ const formatPlanName = (planId) => {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
-app.post("/api/subscriptions", async (req, res) => {
+app.post("/api/subscriptions", verifyToken, async (req, res) => {
   try {
     const { subsInfo, user } = req.body;
 
@@ -183,7 +218,7 @@ app.get("/api/subscriptions", verifyToken, verifyAdmin, async (req, res) => {
   res.send(result);
 });
 
-app.get("/api/plans", async (req, res) => {
+app.get("/api/plans", verifyToken, async (req, res) => {
   const query = {};
   if (req.query.plan_id) {
     query.plan_id = req.query.plan_id;
@@ -195,46 +230,57 @@ app.get("/api/plans", async (req, res) => {
 // =========================================================================
 // 1. CREATE STARTUP (Founder Submits -> Notifies Admin)
 // =========================================================================
-app.post("/api/startup", async (req, res) => {
-  try {
-    const data = req.body;
-    const startupName = data.startup_name || data.name || "Untitled Startup";
-    const startupId = data.startupId || data.userId;
-    const founderEmail = data.founder_email || data.founderEmail || "A founder";
+app.post(
+  "/api/startup",
+  verifyToken,
+  requireAnyRole("founder", "admin"),
+  async (req, res) => {
+    try {
+      const data = req.body;
+      // The authenticated founder is the owner — never trust the client to pick a startupId
+      if (getUserRole(req.user) !== "admin") {
+        data.startupId = String(req.user._id);
+        data.userId = String(req.user._id);
+      }
+      const startupName = data.startup_name || data.name || "Untitled Startup";
+      const startupId = data.startupId || data.userId;
+      const founderEmail =
+        data.founder_email || data.founderEmail || "A founder";
 
-    const startup_result = await startupsCollection.insertOne({
-      ...data,
-      status: data.status || "Pending",
-      createdAt: new Date(),
-    });
+      const startup_result = await startupsCollection.insertOne({
+        ...data,
+        status: data.status || "Pending",
+        createdAt: new Date(),
+      });
 
-    let opportunity_result = null;
-    if (startupId && startupName) {
-      opportunity_result = await opportunitiesCollection.updateMany(
-        { startupId: startupId },
-        { $set: { startupName: startupName, status: "Pending" } },
-      );
+      let opportunity_result = null;
+      if (startupId && startupName) {
+        opportunity_result = await opportunitiesCollection.updateMany(
+          { startupId: startupId },
+          { $set: { startupName: startupName, status: "Pending" } },
+        );
+      }
+
+      // Send notification to admin panel
+      await createSystemNotification({
+        recipientRole: "admin",
+        message: `🚀 New Startup Profile: '${startupName}' submitted by ${founderEmail} requires review.`,
+        type: "warning",
+        link: "/dashboard/admin/startups",
+      });
+
+      res.status(201).json({ startup_result, opportunity_result });
+    } catch (error) {
+      console.error("Error creating startup:", error);
+      res.status(500).json({ error: error.message });
     }
-
-    // Send notification to admin panel
-    await createSystemNotification({
-      recipientRole: "admin",
-      message: `🚀 New Startup Profile: '${startupName}' submitted by ${founderEmail} requires review.`,
-      type: "warning",
-      link: "/dashboard/admin/startups",
-    });
-
-    res.status(201).json({ startup_result, opportunity_result });
-  } catch (error) {
-    console.error("Error creating startup:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+  },
+);
 
 // =========================================================================
 // 2. UPDATE / RESUBMIT / APPROVE STARTUP (Bidirectional Notifications)
 // =========================================================================
-app.patch("/api/startup/:id", async (req, res) => {
+app.patch("/api/startup/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { _id, ...updateStartup } = req.body;
@@ -249,6 +295,16 @@ app.patch("/api/startup/:id", async (req, res) => {
 
     if (!existingStartup) {
       return res.status(404).json({ error: "Startup profile not found" });
+    }
+
+    // Only the owning founder (or an admin) may edit a startup profile
+    const requesterId = userIdStr(req.user);
+    const isAdmin = getUserRole(req.user) === "admin";
+    const isOwner =
+      String(existingStartup.startupId || "") === requesterId ||
+      String(existingStartup.userId || "") === requesterId;
+    if (!isAdmin && !isOwner) {
+      return res.status(403).send({ message: "forbidden access" });
     }
 
     const startupUpdatePayload = {
@@ -373,8 +429,26 @@ app.patch("/api/startup/:id", async (req, res) => {
   }
 });
 
-app.delete("/api/startup/:id", async (req, res) => {
+app.delete("/api/startup/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
+  const existingStartup = await startupsCollection.findOne({
+    _id: new ObjectId(id),
+  });
+
+  if (!existingStartup) {
+    return res.status(404).send({ message: "Startup profile not found" });
+  }
+
+  // Only the owning founder (or an admin) may delete a startup profile
+  const requesterId = userIdStr(req.user);
+  const isAdmin = getUserRole(req.user) === "admin";
+  const isOwner =
+    String(existingStartup.startupId || "") === requesterId ||
+    String(existingStartup.userId || "") === requesterId;
+  if (!isAdmin && !isOwner) {
+    return res.status(403).send({ message: "forbidden access" });
+  }
+
   const result = await startupsCollection.deleteOne({
     _id: new ObjectId(id),
   });
@@ -473,34 +547,59 @@ app.get("/api/startup/:id", async (req, res) => {
 // =========================================================================
 // 1. OPPORTUNITIES
 // =========================================================================
-app.post("/api/opportunity", async (req, res) => {
-  try {
-    const data = req.body;
+app.post(
+  "/api/opportunity",
+  verifyToken,
+  requireAnyRole("founder", "admin"),
+  async (req, res) => {
+    try {
+      const data = req.body;
 
-    const newOpportunity = {
-      ...data,
-      status: data.status || "Active",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+      // The authenticated founder owns every role they post
+      if (getUserRole(req.user) !== "admin") {
+        data.startupId = String(req.user._id);
+      }
 
-    const result = await opportunitiesCollection.insertOne(newOpportunity);
-    res.status(201).json(result);
-  } catch (error) {
-    console.error("Error creating opportunity:", error);
-    res
-      .status(500)
-      .json({ error: error.message || "Failed to create opportunity" });
-  }
-});
+      const newOpportunity = {
+        ...data,
+        status: data.status || "Active",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
 
-app.patch("/api/opportunity/:id", async (req, res) => {
+      const result = await opportunitiesCollection.insertOne(newOpportunity);
+      res.status(201).json(result);
+    } catch (error) {
+      console.error("Error creating opportunity:", error);
+      res
+        .status(500)
+        .json({ error: error.message || "Failed to create opportunity" });
+    }
+  },
+);
+
+app.patch("/api/opportunity/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { _id, ...updateOpportunity } = req.body;
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({ error: "Invalid Opportunity ID" });
+    }
+
+    const existingOpp = await opportunitiesCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!existingOpp) {
+      return res.status(404).json({ error: "Opportunity not found" });
+    }
+
+    // Only the founder who owns the opportunity (or an admin) may edit it
+    const isAdmin = getUserRole(req.user) === "admin";
+    const isOwner = String(existingOpp.startupId || "") === userIdStr(req.user);
+    if (!isAdmin && !isOwner) {
+      return res.status(403).send({ message: "forbidden access" });
     }
 
     const result = await opportunitiesCollection.updateOne(
@@ -522,8 +621,23 @@ app.patch("/api/opportunity/:id", async (req, res) => {
   }
 });
 
-app.delete("/api/opportunity/:id", async (req, res) => {
+app.delete("/api/opportunity/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
+  const existingOpp = await opportunitiesCollection.findOne({
+    _id: new ObjectId(id),
+  });
+
+  if (!existingOpp) {
+    return res.status(404).send({ message: "Opportunity not found" });
+  }
+
+  // Only the founder who owns the opportunity (or an admin) may delete it
+  const isAdmin = getUserRole(req.user) === "admin";
+  const isOwner = String(existingOpp.startupId || "") === userIdStr(req.user);
+  if (!isAdmin && !isOwner) {
+    return res.status(403).send({ message: "forbidden access" });
+  }
+
   const result = await opportunitiesCollection.deleteOne({
     _id: new ObjectId(id),
   });
@@ -680,139 +794,163 @@ app.get("/api/featured/opportunities", async (req, res) => {
 // =========================================================================
 // 3. APPLICATIONS (Collaborator Applies -> Notifies Founder)
 // =========================================================================
-app.post("/api/application", async (req, res) => {
-  try {
-    const data = req.body;
-    const newApplication = {
-      ...data,
-      status: "Pending",
-      appliedDate: new Date().toISOString().split("T")[0],
-      createdAt: new Date(),
-    };
+app.post(
+  "/api/application",
+  verifyToken,
+  verifyCollaborator,
+  async (req, res) => {
+    try {
+      const data = req.body;
+      // The authenticated collaborator is the applicant — never trust the client
+      data.collaboratorId = String(req.user._id);
+      data.userId = String(req.user._id);
+      data.applicantEmail = req.user.email;
+      data.applicantName = req.user.name;
+      const newApplication = {
+        ...data,
+        status: "Pending",
+        appliedDate: new Date().toISOString().split("T")[0],
+        createdAt: new Date(),
+      };
 
-    const result = await applicationsCollection.insertOne(newApplication);
+      const result = await applicationsCollection.insertOne(newApplication);
 
-    // 🔥 Send notification with the correct founder applications route
-    const founderRecipientId = data.startupId || data.founderId;
-    const applicantDisplayName =
-      data.applicantName || data.applicantEmail || "A collaborator";
-    const roleTitle = data.opportunityTitle || "Collaborator Role";
+      // 🔥 Send notification with the correct founder applications route
+      const founderRecipientId = data.startupId || data.founderId;
+      const applicantDisplayName =
+        data.applicantName || data.applicantEmail || "A collaborator";
+      const roleTitle = data.opportunityTitle || "Collaborator Role";
 
-    if (founderRecipientId) {
-      await createSystemNotification({
-        recipientId: String(founderRecipientId),
-        recipientRole: "founder",
-        message: `📥 New Application: ${applicantDisplayName} applied for '${roleTitle}'.`,
-        type: "info",
-        link: "/dashboard/founder/applications", // Updated to /dashboard/founder/applications
-      });
+      if (founderRecipientId) {
+        await createSystemNotification({
+          recipientId: String(founderRecipientId),
+          recipientRole: "founder",
+          message: `📥 New Application: ${applicantDisplayName} applied for '${roleTitle}'.`,
+          type: "info",
+          link: "/dashboard/founder/applications", // Updated to /dashboard/founder/applications
+        });
+      }
+
+      res.status(201).json(result);
+    } catch (error) {
+      console.error("Error submitting application:", error);
+      res
+        .status(500)
+        .json({ error: error.message || "Failed to submit application" });
     }
-
-    res.status(201).json(result);
-  } catch (error) {
-    console.error("Error submitting application:", error);
-    res
-      .status(500)
-      .json({ error: error.message || "Failed to submit application" });
-  }
-});
+  },
+);
 
 // =========================================================================
 // 3. UPDATE APPLICATION (Founder Accepts/Rejects -> Notifies Collaborator)
 // =========================================================================
-app.patch("/api/application/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
+app.patch(
+  "/api/application/:id",
+  verifyToken,
+  requireAnyRole("founder", "admin"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
 
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ error: "Invalid Application ID" });
-    }
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).json({ error: "Invalid Application ID" });
+      }
 
-    if (!status) {
-      return res.status(400).json({ error: "Status is required" });
-    }
+      if (!status) {
+        return res.status(400).json({ error: "Status is required" });
+      }
 
-    // 1. Fetch existing application details to identify collaborator and role info
-    const existingApp = await applicationsCollection.findOne({
-      _id: new ObjectId(id),
-    });
+      // 1. Fetch existing application details to identify collaborator and role info
+      const existingApp = await applicationsCollection.findOne({
+        _id: new ObjectId(id),
+      });
 
-    if (!existingApp) {
-      return res.status(404).json({ error: "Application not found" });
-    }
+      if (!existingApp) {
+        return res.status(404).json({ error: "Application not found" });
+      }
 
-    // 2. Update status in DB
-    const result = await applicationsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          status,
-          updatedAt: new Date(),
+      // Only the founder who owns the startup (or an admin) may decide an application
+      const isAdmin = getUserRole(req.user) === "admin";
+      const isOwner =
+        String(existingApp.startupId || "") === userIdStr(req.user);
+      if (!isAdmin && !isOwner) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+
+      // 2. Update status in DB
+      const result = await applicationsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            status,
+            updatedAt: new Date(),
+          },
         },
-      },
-    );
+      );
 
-    // 3. Extract collaborator and role details
-    const collaboratorRecipientId =
-      existingApp.collaboratorId || existingApp.userId;
-    const roleTitle =
-      existingApp.opportunityTitle || existingApp.roleTitle || "Role";
-    const startupName = existingApp.startupName || "the startup";
-    const normalizedStatus = String(status).toLowerCase();
+      // 3. Extract collaborator and role details
+      const collaboratorRecipientId =
+        existingApp.collaboratorId || existingApp.userId;
+      const roleTitle =
+        existingApp.opportunityTitle || existingApp.roleTitle || "Role";
+      const startupName = existingApp.startupName || "the startup";
+      const normalizedStatus = String(status).toLowerCase();
 
-    // =======================================================================
-    // 🔥 NOTIFY COLLABORATOR BASED ON FOUNDER DECISION
-    // =======================================================================
-    if (collaboratorRecipientId) {
-      // CASE A: Founder Accepts Application
-      if (normalizedStatus === "accepted" || normalizedStatus === "approved") {
-        await createSystemNotification({
-          recipientId: String(collaboratorRecipientId),
-          recipientRole: "collaborator",
-          message: `🎉 Congratulations! Your application for '${roleTitle}' at '${startupName}' was Accepted! Check your dashboard for next steps.`,
-          type: "success",
-          link: "/dashboard/collaborator/my-applications",
-        });
+      // =======================================================================
+      // 🔥 NOTIFY COLLABORATOR BASED ON FOUNDER DECISION
+      // =======================================================================
+      if (collaboratorRecipientId) {
+        // CASE A: Founder Accepts Application
+        if (
+          normalizedStatus === "accepted" ||
+          normalizedStatus === "approved"
+        ) {
+          await createSystemNotification({
+            recipientId: String(collaboratorRecipientId),
+            recipientRole: "collaborator",
+            message: `🎉 Congratulations! Your application for '${roleTitle}' at '${startupName}' was Accepted! Check your dashboard for next steps.`,
+            type: "success",
+            link: "/dashboard/collaborator/my-applications",
+          });
+        }
+        // CASE B: Founder Rejects Application
+        else if (
+          normalizedStatus === "rejected" ||
+          normalizedStatus === "declined"
+        ) {
+          await createSystemNotification({
+            recipientId: String(collaboratorRecipientId),
+            recipientRole: "collaborator",
+            message: `📋 Application Update: The team at '${startupName}' decided not to proceed with your application for '${roleTitle}' at this time.`,
+            type: "warning",
+            link: "/dashboard/collaborator/my-applications",
+          });
+        }
       }
-      // CASE B: Founder Rejects Application
-      else if (
-        normalizedStatus === "rejected" ||
-        normalizedStatus === "declined"
-      ) {
-        await createSystemNotification({
-          recipientId: String(collaboratorRecipientId),
-          recipientRole: "collaborator",
-          message: `📋 Application Update: The team at '${startupName}' decided not to proceed with your application for '${roleTitle}' at this time.`,
-          type: "warning",
-          link: "/dashboard/collaborator/my-applications",
-        });
-      }
+
+      res.json({ success: true, result });
+    } catch (err) {
+      console.error("Error updating application status:", err);
+      res
+        .status(500)
+        .json({ error: err.message || "Failed to update application" });
     }
-
-    res.json({ success: true, result });
-  } catch (err) {
-    console.error("Error updating application status:", err);
-    res
-      .status(500)
-      .json({ error: err.message || "Failed to update application" });
-  }
-});
+  },
+);
 
 app.get(
   "/api/founder/applications",
   verifyToken,
   verifyFounder,
   async (req, res) => {
-    const query = {};
-
-    if (req.query.startupId) {
-      query.startupId = req.query.startupId;
-
-      if (req.user._id.toString() !== req.query.startupId) {
-        return res.status(403).send({ message: "forbidden access" });
-      }
+    // A founder may only ever see applications for their own startup
+    const requestedStartupId = req.query.startupId || userIdStr(req.user);
+    if (req.user._id.toString() !== requestedStartupId) {
+      return res.status(403).send({ message: "forbidden access" });
     }
+
+    const query = { startupId: requestedStartupId };
 
     const result = await applicationsCollection
       .find(query)
@@ -825,13 +963,24 @@ app.get(
 app.get(
   "/api/my/applications",
   verifyToken,
-  verifyCollaborator || verifyFounder || verifyAdmin,
+  requireAnyRole("collaborator", "admin"),
   async (req, res) => {
     try {
       const { collaboratorId, userId, opportunityId } = req.query;
       const query = {};
 
-      const activeUserId = collaboratorId || userId;
+      // A user may only ever look up their OWN applications (admin may look up any).
+      // This blocks the IDOR where a collaborator passed someone else's id.
+      const activeUserId = collaboratorId || userId || userIdStr(req.user);
+      const requesterId = userIdStr(req.user);
+      const isAdmin = getUserRole(req.user) === "admin";
+      if (
+        !isAdmin &&
+        activeUserId !== requesterId &&
+        activeUserId !== String(req.user.id || "")
+      ) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
       if (activeUserId) {
         query.$or = [
           { collaboratorId: activeUserId },
@@ -882,8 +1031,27 @@ app.get(
   },
 );
 
-app.delete("/api/application/:id", async (req, res) => {
+app.delete("/api/application/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
+  const existingApp = await applicationsCollection.findOne({
+    _id: new ObjectId(id),
+  });
+
+  if (!existingApp) {
+    return res.status(404).send({ message: "Application not found" });
+  }
+
+  // The owning collaborator, the receiving founder, or an admin may delete an application
+  const requesterId = userIdStr(req.user);
+  const isAdmin = getUserRole(req.user) === "admin";
+  const isOwner =
+    String(existingApp.collaboratorId || "") === requesterId ||
+    String(existingApp.userId || "") === requesterId ||
+    String(existingApp.startupId || "") === requesterId;
+  if (!isAdmin && !isOwner) {
+    return res.status(403).send({ message: "forbidden access" });
+  }
+
   const result = await applicationsCollection.deleteOne({
     _id: new ObjectId(id),
   });
@@ -893,11 +1061,10 @@ app.delete("/api/application/:id", async (req, res) => {
 // =========================================================================
 // BOOKMARKS
 // =========================================================================
-app.post("/api/bookmark", async (req, res) => {
+app.post("/api/bookmark", verifyToken, async (req, res) => {
   try {
     const {
       opportunityId,
-      userId,
       roleTitle,
       startupName,
       workType,
@@ -906,18 +1073,17 @@ app.post("/api/bookmark", async (req, res) => {
       requiredSkills,
     } = req.body;
 
-    if (!opportunityId || !userId) {
-      return res
-        .status(400)
-        .json({ error: "opportunityId and userId are required" });
+    if (!opportunityId) {
+      return res.status(400).json({ error: "opportunityId is required" });
     }
 
+    // The authenticated user owns the bookmark — never trust the client to pick an owner
     const oppIdStr = String(opportunityId);
-    const userIdStr = String(userId);
+    const ownerUserIdStr = userIdStr(req.user);
 
     const existing = await bookmarksCollection.findOne({
       opportunityId: oppIdStr,
-      userId: userIdStr,
+      userId: ownerUserIdStr,
     });
 
     if (existing) {
@@ -926,7 +1092,7 @@ app.post("/api/bookmark", async (req, res) => {
 
     const bookmarkData = {
       opportunityId: oppIdStr,
-      userId: userIdStr,
+      userId: ownerUserIdStr,
       roleTitle: roleTitle || "Collaborator Role",
       startupName: startupName || "Startup",
       workType: workType || "Remote",
@@ -944,23 +1110,31 @@ app.post("/api/bookmark", async (req, res) => {
   }
 });
 
-app.delete("/api/bookmark/:id", async (req, res) => {
+app.delete("/api/bookmark/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId } = req.query;
 
-    const query = {
+    const bookmark = await bookmarksCollection.findOne({
       $or: [
         { opportunityId: String(id) },
         ...(ObjectId.isValid(id) ? [{ _id: new ObjectId(id) }] : []),
       ],
-    };
+    });
 
-    if (userId) {
-      query.userId = String(userId);
+    if (!bookmark) {
+      return res.status(404).json({ error: "Bookmark not found" });
     }
 
-    const result = await bookmarksCollection.deleteOne(query);
+    // Only the owner (or an admin) may remove a bookmark
+    const requesterId = userIdStr(req.user);
+    const isAdmin = getUserRole(req.user) === "admin";
+    if (!isAdmin && String(bookmark.userId || "") !== requesterId) {
+      return res.status(403).send({ message: "forbidden access" });
+    }
+
+    const result = await bookmarksCollection.deleteOne({
+      _id: bookmark._id,
+    });
     res.json(result);
   } catch (error) {
     console.error("Error deleting bookmark:", error);
@@ -971,17 +1145,25 @@ app.delete("/api/bookmark/:id", async (req, res) => {
 app.get(
   "/api/my/bookmarks",
   verifyToken,
-  verifyCollaborator,
+  requireAnyRole("collaborator", "admin"),
   async (req, res) => {
     try {
       const { userId } = req.query;
 
-      if (!userId) {
-        return res.json([]);
+      // A user may only read their own bookmarks (admin may read any)
+      const activeUserId = userId || userIdStr(req.user);
+      const requesterId = userIdStr(req.user);
+      const isAdmin = getUserRole(req.user) === "admin";
+      if (
+        !isAdmin &&
+        activeUserId !== requesterId &&
+        activeUserId !== String(req.user.id || "")
+      ) {
+        return res.status(403).send({ message: "forbidden access" });
       }
 
       const result = await bookmarksCollection
-        .find({ userId: String(userId) })
+        .find({ userId: String(activeUserId) })
         .sort({ _id: -1 })
         .toArray();
 
@@ -996,16 +1178,42 @@ app.get(
 // =========================================================================
 // USERS
 // =========================================================================
-app.get("/api/user/profile/:id", verifyToken, async (req, res) => {
-  const { id } = req.params;
-  const result = await usersCollection.findOne({ _id: new ObjectId(id) });
-  res.send(result || {});
-});
+app.get(
+  "/api/user/profile/:id",
+  verifyToken,
+  requireAnyRole("admin", "founder", "collaborator"),
+  async (req, res) => {
+    const { id } = req.params;
 
-app.patch("/api/user/profile/:id", async (req, res) => {
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ error: "Invalid User ID" });
+    }
+
+    // A user may only read their own profile (admin may read any)
+    const requesterId = userIdStr(req.user);
+    const isAdmin = getUserRole(req.user) === "admin";
+    const isSelf = id === requesterId || id === String(req.user.id || "");
+    if (!isAdmin && !isSelf) {
+      return res.status(403).send({ message: "forbidden access" });
+    }
+
+    const result = await usersCollection.findOne({ _id: new ObjectId(id) });
+    res.send(sanitizeUser(result) || {});
+  },
+);
+
+app.patch("/api/user/profile/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, image, skills, bio } = req.body;
+
+    // A user may only update their own profile (admin may update any)
+    const requesterId = userIdStr(req.user);
+    const isAdmin = getUserRole(req.user) === "admin";
+    const isSelf = id === requesterId || id === String(req.user.id || "");
+    if (!isAdmin && !isSelf) {
+      return res.status(403).send({ message: "forbidden access" });
+    }
 
     const updateFields = {
       updatedAt: new Date(),
@@ -1035,7 +1243,7 @@ app.patch("/api/user/profile/:id", async (req, res) => {
   }
 });
 
-app.patch("/api/user/:id", async (req, res) => {
+app.patch("/api/user/:id", verifyToken, verifyAdmin, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
@@ -1047,15 +1255,10 @@ app.patch("/api/user/:id", async (req, res) => {
   res.send(result || {});
 });
 
-app.get(
-  "/api/users",
-  verifyToken,
-  verifyAdmin || verifyFounder || verifyCollaborator,
-  async (req, res) => {
-    const result = await usersCollection.find().sort({ _id: -1 }).toArray();
-    res.send(result || {});
-  },
-);
+app.get("/api/users", verifyToken, verifyAdmin, async (req, res) => {
+  const result = await usersCollection.find().sort({ _id: -1 }).toArray();
+  res.send(sanitizeUsers(result) || {});
+});
 
 // =========================================================================
 // 4. NOTIFICATIONS ENDPOINTS
@@ -1065,12 +1268,23 @@ app.get("/api/notifications", verifyToken, async (req, res) => {
     const { userId, role } = req.query;
     let query = {};
 
-    if (role === "admin") {
+    // A user may only read their own notifications; only an admin may see admin-wide ones
+    const requesterId = userIdStr(req.user);
+    const isAdmin = getUserRole(req.user) === "admin";
+    if (!isAdmin && String(userId || "") !== requesterId) {
+      return res.status(403).send({ message: "forbidden access" });
+    }
+    const effectiveUserId = userId || requesterId;
+
+    if (role === "admin" && isAdmin) {
       query = {
-        $or: [{ recipientRole: "admin" }, { recipientId: String(userId) }],
+        $or: [
+          { recipientRole: "admin" },
+          { recipientId: String(effectiveUserId) },
+        ],
       };
     } else {
-      query = { recipientId: String(userId) };
+      query = { recipientId: String(effectiveUserId) };
     }
 
     const notifications = await notificationsCollection
@@ -1091,17 +1305,28 @@ app.get("/api/notifications", verifyToken, async (req, res) => {
   }
 });
 
-app.patch("/api/notifications/mark-all-read", async (req, res) => {
+app.patch("/api/notifications/mark-all-read", verifyToken, async (req, res) => {
   try {
     const { userId, role } = req.body;
     let query = {};
 
-    if (role === "admin") {
+    // A user may only mark their own notifications read
+    const requesterId = userIdStr(req.user);
+    const isAdmin = getUserRole(req.user) === "admin";
+    if (!isAdmin && String(userId || "") !== requesterId) {
+      return res.status(403).send({ message: "forbidden access" });
+    }
+    const effectiveUserId = userId || requesterId;
+
+    if (role === "admin" && isAdmin) {
       query = {
-        $or: [{ recipientRole: "admin" }, { recipientId: String(userId) }],
+        $or: [
+          { recipientRole: "admin" },
+          { recipientId: String(effectiveUserId) },
+        ],
       };
     } else {
-      query = { recipientId: String(userId) };
+      query = { recipientId: String(effectiveUserId) };
     }
 
     const result = await notificationsCollection.updateMany(query, {
@@ -1115,12 +1340,26 @@ app.patch("/api/notifications/mark-all-read", async (req, res) => {
   }
 });
 
-app.patch("/api/notifications/:id/read", async (req, res) => {
+app.patch("/api/notifications/:id/read", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({ error: "Invalid Notification ID" });
+    }
+
+    const notif = await notificationsCollection.findOne({
+      _id: new ObjectId(id),
+    });
+    if (!notif) {
+      return res.status(404).json({ error: "Notification not found" });
+    }
+
+    // A user may only mark their own notifications read (admin may mark any)
+    const requesterId = userIdStr(req.user);
+    const isAdmin = getUserRole(req.user) === "admin";
+    if (!isAdmin && String(notif.recipientId || "") !== requesterId) {
+      return res.status(403).send({ message: "forbidden access" });
     }
 
     const result = await notificationsCollection.updateOne(
@@ -1147,9 +1386,9 @@ app.patch("/api/notifications/:id/read", async (req, res) => {
 // run().catch(console.dir);
 
 app.get("/", (req, res) => {
-  res.send("Server is running fine!");
+  res.send("StartupForge server is running fine!");
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`StartupForge server running on port ${PORT}`);
 });
