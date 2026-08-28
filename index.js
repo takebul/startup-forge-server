@@ -1197,10 +1197,20 @@ app.delete("/api/bookmark/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
 
+    const requesterId = userIdStr(req.user);
+    const isAdmin = getUserRole(req.user) === "admin";
+
+    // Scope the lookup to the authenticated user (unless admin). Multiple
+    // users can bookmark the same opportunity, so matching by opportunityId
+    // alone could select another user's bookmark and wrongly 403 / delete it.
+    const userScope = isAdmin ? {} : { userId: requesterId };
+
     const bookmark = await bookmarksCollection.findOne({
       $or: [
-        { opportunityId: String(id) },
-        ...(ObjectId.isValid(id) ? [{ _id: new ObjectId(id) }] : []),
+        { opportunityId: String(id), ...userScope },
+        ...(ObjectId.isValid(id)
+          ? [{ _id: new ObjectId(id), ...userScope }]
+          : []),
       ],
     });
 
@@ -1209,8 +1219,6 @@ app.delete("/api/bookmark/:id", verifyToken, async (req, res) => {
     }
 
     // Only the owner (or an admin) may remove a bookmark
-    const requesterId = userIdStr(req.user);
-    const isAdmin = getUserRole(req.user) === "admin";
     if (!isAdmin && String(bookmark.userId || "") !== requesterId) {
       return res.status(403).send({ message: "forbidden access" });
     }
