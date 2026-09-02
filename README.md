@@ -109,6 +109,11 @@ The server operates synchronously with the companion Next.js client: while the c
 ## 🏗️ System Architecture
 
 ```mermaid
+---
+config:
+  look: handDrawn
+  theme: neutral
+---
 flowchart TB
     subgraph ClientLayer["🖥️ Frontend Consumer (Next.js 16 App Router)"]
         ClientReq["Client / Server Action Request"]
@@ -166,6 +171,9 @@ flowchart TB
     UserModule --> DBUsers
     NotifyModule --> DBNotifications
 ```
+
+> [!TIP]
+> 🖐️ **Interactive Hand-Moving (Pan & Zoom)**: On GitHub, hover over the architecture diagram above to activate the **Hand Tool** (click and drag to move/pan around) or use your mousewheel / trackpad to zoom in and out.
 
 ---
 
