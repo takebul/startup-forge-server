@@ -108,12 +108,19 @@ The server operates synchronously with the companion Next.js client: while the c
 
 ## 🏗️ System Architecture
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./public/architecture-dark.svg#gh-dark-mode-only">
+    <source media="(prefers-color-scheme: light)" srcset="./public/architecture-light.svg#gh-light-mode-only">
+    <img src="./public/architecture-dark.svg" alt="StartupForge Server Architecture" width="100%" />
+  </picture>
+</p>
+
+<details>
+  <summary><b>🔍 View Raw Mermaid Architecture Source</b></summary>
+  <br />
+
 ```mermaid
----
-config:
-  look: handDrawn
-  theme: neutral
----
 flowchart TB
     subgraph ClientLayer["🖥️ Frontend Consumer (Next.js 16 App Router)"]
         ClientReq["Client / Server Action Request"]
@@ -172,8 +179,7 @@ flowchart TB
     NotifyModule --> DBNotifications
 ```
 
-> [!TIP]
-> 🖐️ **Interactive Hand-Moving (Pan & Zoom)**: On GitHub, hover over the architecture diagram above to activate the **Hand Tool** (click and drag to move/pan around) or use your mousewheel / trackpad to zoom in and out.
+</details>
 
 ---
 

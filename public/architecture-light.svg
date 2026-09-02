@@ -1,0 +1,189 @@
+<svg width="1000" height="660" viewBox="0 0 1000 660" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="StartupForge Server Architecture (Light Mode)">
+  <defs>
+    <linearGradient id="srvBgLight" x1="0" y1="0" x2="1000" y2="660" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#F1F5F9"/>
+    </linearGradient>
+    <linearGradient id="srvHeaderLight" x1="0" y1="0" x2="350" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#059669"/>
+      <stop offset="0.5" stop-color="#0284C7"/>
+      <stop offset="1" stop-color="#6D28D9"/>
+    </linearGradient>
+    <linearGradient id="srvCardLight" x1="0" y1="0" x2="0" y2="100" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F8FAFC"/>
+    </linearGradient>
+    <filter id="srvShadowLight" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#0F172A" flood-opacity="0.06"/>
+    </filter>
+    <marker id="srvArrowLight" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#059669"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1000" height="660" rx="16" fill="url(#srvBgLight)"/>
+  <rect x="1" y="1" width="998" height="658" rx="15" stroke="#E2E8F0" stroke-width="1.5"/>
+
+  <!-- Title -->
+  <g transform="translate(36, 32)">
+    <rect x="0" y="0" width="36" height="36" rx="10" fill="#059669"/>
+    <path d="M12 18 h12 M18 12 v12" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/>
+    <text x="48" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="800" fill="url(#srvHeaderLight)" letter-spacing="-0.5">
+      StartupForge Server — Backend Engine Architecture
+    </text>
+    <text x="48" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="500" fill="#64748B">
+      Express 5 · MongoDB 7 Native Driver · Token-Verified RBAC · Anti-IDOR Protection · Vercel Serverless
+    </text>
+  </g>
+
+  <!-- ================= TIER 1: INGESTION ================= -->
+  <g transform="translate(36, 85)">
+    <rect width="928" height="110" rx="12" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1"/>
+    <text x="20" y="24" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#0284C7" letter-spacing="0.5">
+      1. CONSUMER INGESTION &amp; HTTP PROTOCOL
+    </text>
+
+    <g transform="translate(20, 36)">
+      <rect width="280" height="62" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="14" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#0F172A">Next.js Client Consumer</text>
+      <text x="14" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10.5" fill="#475569">REST Data Fetchers &amp; Server Actions</text>
+      <text x="14" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9.5" fill="#94A3B8">JSON payloads over HTTPS</text>
+    </g>
+
+    <g transform="translate(324, 36)">
+      <rect width="280" height="62" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="14" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#0F172A">Authorization Headers</text>
+      <text x="14" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10.5" fill="#475569">Authorization: Bearer &lt;session_token&gt;</text>
+      <text x="14" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9.5" fill="#94A3B8">Transmitted on all protected endpoints</text>
+    </g>
+
+    <g transform="translate(628, 36)">
+      <rect width="280" height="62" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="14" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#0F172A">CORS Origin Pinned</text>
+      <text x="14" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10.5" fill="#475569">process.env.CLIENT_URL Allowlist</text>
+      <text x="14" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9.5" fill="#94A3B8">credentials: true (blocks wildcards)</text>
+    </g>
+  </g>
+
+  <!-- Connectors Tier 1 to 2 -->
+  <line x1="300" y1="195" x2="300" y2="225" stroke="#059669" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#srvArrowLight)"/>
+  <line x1="700" y1="195" x2="700" y2="225" stroke="#059669" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#srvArrowLight)"/>
+
+  <!-- ================= TIER 2: MIDDLEWARE STACK ================= -->
+  <g transform="translate(36, 225)">
+    <rect width="928" height="110" rx="12" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1"/>
+    <text x="20" y="24" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#059669" letter-spacing="0.5">
+      2. SECURITY, AUTHENTICATION &amp; MIDDLEWARE PIPELINE
+    </text>
+
+    <g transform="translate(20, 36)">
+      <rect width="210" height="62" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="12" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" fill="#0F172A">node:dns Override</text>
+      <text x="12" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#475569">setServers(["1.1.1.1", ...])</text>
+      <text x="12" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#94A3B8">High-reliability Atlas pooling</text>
+    </g>
+
+    <g transform="translate(250, 36)">
+      <rect width="210" height="62" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="12" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" fill="#0F172A">verifyToken Auth</text>
+      <text x="12" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#475569">Session DB Lookup</text>
+      <text x="12" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#94A3B8">Validates token expiration &amp; user</text>
+    </g>
+
+    <g transform="translate(480, 36)">
+      <rect width="210" height="62" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="12" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" fill="#0F172A">requireAnyRole RBAC</text>
+      <text x="12" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#475569">Multi-Role Evaluator</text>
+      <text x="12" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#94A3B8">Founder · Collaborator · Admin</text>
+    </g>
+
+    <g transform="translate(710, 36)">
+      <rect width="198" height="62" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="12" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" fill="#0F172A">Anti-IDOR &amp; Sanitizer</text>
+      <text x="12" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#475569">Handler Ownership Check</text>
+      <text x="12" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#94A3B8">Server-side identity stamping</text>
+    </g>
+  </g>
+
+  <!-- Connectors Tier 2 to 3 -->
+  <line x1="200" y1="335" x2="200" y2="365" stroke="#059669" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#srvArrowLight)"/>
+  <line x1="500" y1="335" x2="500" y2="365" stroke="#059669" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#srvArrowLight)"/>
+  <line x1="800" y1="335" x2="800" y2="365" stroke="#059669" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#srvArrowLight)"/>
+
+  <!-- ================= TIER 3: SERVICE MODULES ================= -->
+  <g transform="translate(36, 365)">
+    <rect width="928" height="110" rx="12" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1"/>
+    <text x="20" y="24" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#6D28D9" letter-spacing="0.5">
+      3. BUSINESS LOGIC &amp; ROUTE CONTROLLERS (index.js)
+    </text>
+
+    <g transform="translate(20, 36)">
+      <rect width="210" height="62" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="12" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" fill="#0F172A">Stripe &amp; Plans</text>
+      <text x="12" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#475569">Idempotent Receipts</text>
+      <text x="12" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#94A3B8">Duplicate session_id rejection</text>
+    </g>
+
+    <g transform="translate(250, 36)">
+      <rect width="210" height="62" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="12" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" fill="#0F172A">Startups &amp; Vetting</text>
+      <text x="12" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#475569">Lifecycle State Machine</text>
+      <text x="12" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#94A3B8">Pending ➔ Approved / Rejected</text>
+    </g>
+
+    <g transform="translate(480, 36)">
+      <rect width="210" height="62" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="12" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" fill="#0F172A">Opportunities &amp; Quotas</text>
+      <text x="12" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#475569">Plan Limits (3/10/100)</text>
+      <text x="12" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#94A3B8">Faceted multi-filter search</text>
+    </g>
+
+    <g transform="translate(710, 36)">
+      <rect width="198" height="62" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="12" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" fill="#0F172A">Applications &amp; Alerts</text>
+      <text x="12" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#475569">Candidate Pipeline</text>
+      <text x="12" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#94A3B8">Automated notification writer</text>
+    </g>
+  </g>
+
+  <!-- Connectors Tier 3 to 4 -->
+  <line x1="300" y1="475" x2="300" y2="505" stroke="#059669" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#srvArrowLight)"/>
+  <line x1="700" y1="475" x2="700" y2="505" stroke="#059669" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#srvArrowLight)"/>
+
+  <!-- ================= TIER 4: MONGODB ATLAS ================= -->
+  <g transform="translate(36, 505)">
+    <rect width="928" height="115" rx="12" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1"/>
+    <text x="20" y="24" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#D97706" letter-spacing="0.5">
+      4. PERSISTENCE LAYER — MONGODB ATLAS (Native Driver v7)
+    </text>
+
+    <g transform="translate(20, 36)">
+      <rect width="210" height="66" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="12" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" fill="#0F172A">user &amp; session</text>
+      <text x="12" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#475569">Auth &amp; Session Store</text>
+      <text x="12" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#94A3B8">Strict sanitization of secrets</text>
+    </g>
+
+    <g transform="translate(250, 36)">
+      <rect width="210" height="66" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="12" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" fill="#0F172A">startups &amp; opportunities</text>
+      <text x="12" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#475569">Catalog &amp; Positions</text>
+      <text x="12" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#94A3B8">Batched $in founder sync</text>
+    </g>
+
+    <g transform="translate(480, 36)">
+      <rect width="210" height="66" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="12" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" fill="#0F172A">applications &amp; bookmarks</text>
+      <text x="12" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#475569">Workflow Pipeline</text>
+      <text x="12" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#94A3B8">$lookup enriched opportunity cards</text>
+    </g>
+
+    <g transform="translate(710, 36)">
+      <rect width="198" height="66" rx="8" fill="url(#srvCardLight)" stroke="#E2E8F0" filter="url(#srvShadowLight)"/>
+      <text x="12" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" fill="#0F172A">subscriptions &amp; alerts</text>
+      <text x="12" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#475569">Billing &amp; Notifications</text>
+      <text x="12" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#94A3B8">Unread counters &amp; audit trails</text>
+    </g>
+  </g>
+</svg>
