@@ -1,8 +1,8 @@
 <div align="center">
 
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./public/logo-wordmark-dark.svg#gh-dark-mode-only">
-    <source media="(prefers-color-scheme: light)" srcset="./public/logo-wordmark.svg#gh-light-mode-only">
+    <source media="(prefers-color-scheme: dark)" srcset="./public/logo-wordmark-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./public/logo-wordmark.svg">
     <img src="./public/logo-wordmark.svg" alt="StartupForge Server Logo" width="340" />
   </picture>
 
@@ -110,8 +110,8 @@ The server operates synchronously with the companion Next.js client: while the c
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./public/architecture-dark.svg#gh-dark-mode-only">
-    <source media="(prefers-color-scheme: light)" srcset="./public/architecture-light.svg#gh-light-mode-only">
+    <source media="(prefers-color-scheme: dark)" srcset="./public/architecture-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./public/architecture-light.svg">
     <img src="./public/architecture-dark.svg" alt="StartupForge Server Architecture" width="100%" />
   </picture>
 </p>
