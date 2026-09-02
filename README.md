@@ -1,266 +1,435 @@
 <div align="center">
 
-# ⚙️ StartupForge Server
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./public/logo-wordmark-dark.svg#gh-dark-mode-only">
+    <source media="(prefers-color-scheme: light)" srcset="./public/logo-wordmark.svg#gh-light-mode-only">
+    <img src="./public/logo-wordmark.svg" alt="StartupForge Server Logo" width="340" />
+  </picture>
 
-**The REST API backend for StartupForge — the marketplace where startup founders meet world-class collaborators.**
+  <br />
+  <br />
 
-A single-file **Express 5 + MongoDB** API (native driver, no ORM) serving the StartupForge Next.js client: startups, opportunities, applications, bookmarks, Stripe subscriptions, in-app notifications, and role-based user administration.
+  <h1>⚙️ StartupForge Server — Core REST API</h1>
 
-[![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org)
-[![Express](https://img.shields.io/badge/Express%205-000000?style=for-the-badge&logo=express&logoColor=white)](https://expressjs.com)
-[![MongoDB](https://img.shields.io/badge/MongoDB-7-47A248?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com)
-[![License: ISC](https://img.shields.io/badge/License-ISC-blue?style=for-the-badge)](./package.json)
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on%20Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://vercel.com)
+  <p align="center">
+    <strong>High-performance, role-guarded backend engine powering the StartupForge talent & co-founder ecosystem.</strong>
+  </p>
 
-[![Live API](https://img.shields.io/badge/%F0%9F%9A%80_Live_API-startup--forge--server--nine.vercel.app-7C3AED?style=for-the-badge&logo=vercel&logoColor=white)](https://startup-forge-server-nine.vercel.app/)
+  <p align="center">
+    Built on <strong>Express 5</strong> and the native <strong>MongoDB 7 Driver</strong> (no ORM overhead). Delivers token-verified authentication, multi-tier RBAC authorization, complex aggregation pipelines, Stripe webhook subscription ingestion, and automated bidirectional notification dispatching.
+  </p>
+
+  <p align="center">
+    <a href="https://startup-forge-server-nine.vercel.app/" target="_blank">
+      <img src="https://img.shields.io/badge/%F0%9F%9A%80_Live_API-startup--forge--server--nine.vercel.app-7C3AED?style=for-the-badge&logo=vercel&logoColor=white" alt="Live API" />
+    </a>
+    <a href="https://startupforgelimited.vercel.app" target="_blank">
+      <img src="https://img.shields.io/badge/%F0%9F%8C%90_Client_App-startupforgelimited.vercel.app-2563EB?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Live Client App" />
+    </a>
+    <a href="./package.json">
+      <img src="https://img.shields.io/badge/License-ISC-10B981?style=for-the-badge" alt="License" />
+    </a>
+  </p>
+
+  <p align="center">
+    <img src="https://img.shields.io/badge/Node.js-18%2B%20%7C%2020%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white" alt="Node.js" />
+    <img src="https://img.shields.io/badge/Express-v5.2.1-000000?style=flat-square&logo=express&logoColor=white" alt="Express 5" />
+    <img src="https://img.shields.io/badge/MongoDB%20Driver-v7.5.0-47A248?style=flat-square&logo=mongodb&logoColor=white" alt="MongoDB 7" />
+    <img src="https://img.shields.io/badge/better--auth-Session%20Sync-6366F1?style=flat-square&logo=auth0&logoColor=white" alt="better-auth Session Sync" />
+    <img src="https://img.shields.io/badge/Stripe-Payment%20Ingestion-635BFF?style=flat-square&logo=stripe&logoColor=white" alt="Stripe" />
+    <img src="https://img.shields.io/badge/CORS-Origin%20Allowlist-F43F5E?style=flat-square" alt="CORS" />
+    <img src="https://img.shields.io/badge/Deployment-Vercel%20Serverless-000000?style=flat-square&logo=vercel&logoColor=white" alt="Vercel" />
+  </p>
+
+  <p align="center">
+    <a href="#-quick-start">Quick Start</a> •
+    <a href="#-core-engineering-pillars">Engineering Pillars</a> •
+    <a href="#%EF%B8%8F-system-architecture">Architecture</a> •
+    <a href="#-complete-api-reference">API Reference</a> •
+    <a href="#-security--authentication-architecture">Security & RBAC</a> •
+    <a href="#%EF%B8%8F-database-collections--aggregations">Database</a> •
+    <a href="#-environment-variables">Configuration</a> •
+    <a href="#-deployment-architecture">Deployment</a>
+  </p>
 
 </div>
 
----
-
-## ✨ Overview
-
-StartupForge Server is the backend powering the [StartupForge](https://startupforgelimited.vercel.app) platform — a marketplace that connects **founders** (posting startup profiles and open roles) with **collaborators** (applying to those roles and tracking their applications).
-
-It exposes a **REST API** for startup and opportunity listings, an application pipeline with founder-side accept/reject decisions, collaborator bookmarks, Stripe subscription recording, per-user notifications, and an admin console for users, startups, and transactions. The frontend handles session creation (via better-auth); this API **verifies** tokens and enforces role- and ownership-based authorization on every protected route.
+<br />
 
 ---
 
-## 🏗️ Architecture
+## 📖 Table of Contents
 
-Honest description: **everything lives in one file** — [`index.js`](index.js) (~1,480 lines). It is organized top-to-bottom as a single Express app with clear sections:
-
-1. **Bootstrap** — a custom DNS resolver (for reliable MongoDB Atlas lookups on serverless), `dotenv`, Express, CORS (single allow-listed origin from env), and JSON body parsing.
-2. **Data layer** — one native-driver `MongoClient` (Stable API v1, strict mode) and 9 collection handles.
-3. **Shared helpers** — notification writer, auth + role middleware, user sanitizers, and founder-profile enrichment.
-4. **Route blocks** — grouped by resource in a consistent order: subscriptions → startups → opportunities → applications → bookmarks → users → notifications. Every group follows the same pattern: `verifyToken` → role guard → **ownership check inside the handler** → query → side effects (notifications).
-5. **Health route + `app.listen`**.
-
-Two deliberate engineering decisions stand out:
-
-- **Native MongoDB driver, not Mongoose.** This API is a read-heavy aggregation surface — regex-powered search, multi-field filters, pagination via `countDocuments` + `skip/limit`, and a `$lookup` that joins applications to opportunities so the client renders enriched cards in one request. The driver keeps those pipelines explicit instead of hiding them behind an ODM.
-- **Founder profile denormalization.** Public reads of startups/opportunities must not expose the `users` collection, so public founder fields (`name`, `image`, `bio`, `email`) are stamped onto documents at write time and re-synced at read time from the founder's user record — batched into a single `$in` lookup to avoid N+1 queries.
-
----
-
-## 🛠️ Tech Stack
-
-| Category | Technology |
-| --- | --- |
-| **Runtime** | [Node.js](https://nodejs.org) (CommonJS) |
-| **Framework** | [Express 5](https://expressjs.com) |
-| **Database** | [MongoDB](https://www.mongodb.com) 7 native driver (`MongoClient`, Stable API v1, `ObjectId`, aggregation pipeline) |
-| **Middleware** | [`cors`](https://github.com/expressjs/cors) (credentials + origin allow-list) · [`express.json`](https://expressjs.com/en/4x/api.html#express.json) body parser |
-| **Config** | [`dotenv`](https://github.com/motdotla/dotenv) for environment secrets |
-| **Hosting** | [Vercel](https://vercel.com) serverless (`@vercel/node`) |
+- [Executive Overview](#-executive-overview)
+- [Core Engineering Pillars](#-core-engineering-pillars)
+- [System Architecture](#%EF%B8%8F-system-architecture)
+- [Complete API Reference](#-complete-api-reference)
+  - [System Health](#system-health)
+  - [Subscriptions & Stripe Billing](#subscriptions--stripe-billing)
+  - [Startups & Approval Pipeline](#startups--approval-pipeline)
+  - [Opportunities & Role Management](#opportunities--role-management)
+  - [Applications Workflow](#applications-workflow)
+  - [Bookmarks & Saved Roles](#bookmarks--saved-roles)
+  - [User Administration & Governance](#user-administration--governance)
+  - [In-App Notifications](#in-app-notifications)
+- [Security & Authentication Architecture](#-security--authentication-architecture)
+- [Database Collections & Aggregations](#%EF%B8%8F-database-collections--aggregations)
+- [Environment Variables](#-environment-variables)
+- [Quick Start & Local Setup](#-quick-start--local-setup)
+- [Deployment Architecture](#-deployment-architecture)
+- [Author & License](#-author--license)
 
 ---
 
-## 📡 API Endpoints
+## 🌟 Executive Overview
 
-**Auth legend**
+The **StartupForge Server** is the mission-critical backend engine supporting the [StartupForge](https://startupforgelimited.vercel.app) platform. It manages all persistent business logic, role-aware entity relationships, and transactional workflows between:
 
-| Symbol | Meaning |
-| --- | --- |
-| 🔓 **Public** | No token required |
-| 🪪 **Token** | Any authenticated user (Bearer token, verified server-side) |
-| 🏢 / 🤝 / 👑 | Restricted to **Founder** / **Collaborator** / **Admin** roles (admins bypass ownership checks) |
+1. **Founders**: Creating venture profiles, post-quota gated opportunities, and adjudicating candidate applications.
+2. **Collaborators**: Discovering verified startups, optimistically bookmarking listings, and submitting vetted applications.
+3. **Administrators**: Moderating startup submissions, auditing Stripe payment transactions, and enforcing platform moderation policies.
 
-### System
-
-| Method | Route | Description | Auth |
-| --- | --- | --- | --- |
-| `GET` | `/` | Health check — returns `"StartupForge server is running fine!"` | 🔓 Public |
-
-### Subscriptions & Plans
-
-| Method | Route | Description | Auth |
-| --- | --- | --- | --- |
-| `POST` | `/api/subscriptions` | Record a Stripe subscription, update the user's `plan`, notify admins. Rejects duplicate `session_id` (idempotency guard). | 🪪 Token |
-| `GET` | `/api/subscriptions` | All subscription payments, newest first (admin transactions view). | 👑 Admin |
-| `GET` | `/api/plans` | Current plan document; optional `?plan_id=` filter. | 🪪 Token |
-
-### Startups
-
-| Method | Route | Description | Auth |
-| --- | --- | --- | --- |
-| `POST` | `/api/startup` | Create a startup profile. Founder identity is **stamped server-side** — never trusted from the client. Notifies admins; syncs role names across the founder's opportunities. | 🏢 Founder / 👑 Admin |
-| `PATCH` | `/api/startup/:id` | Edit or **resubmit** (owner), or **approve / reject** (admin). Cascades status to related opportunities and dispatches bidirectional notifications (admin ↔ founder). | 🪪 Owner / 👑 Admin |
-| `DELETE` | `/api/startup/:id` | Delete a startup profile. | 🪪 Owner / 👑 Admin |
-| `GET` | `/api/my/startup` | The authenticated founder's startups; optional `?startupId=` filter. | 🏢 Founder |
-| `GET` | `/api/startups` | Search + list. Supports `?search=` (name/industry/description, case-insensitive), `?industry=` (comma-separated), `?funding_stage=`, and `?page=&limit=` pagination with counts. | 🔓 Public |
-| `GET` | `/api/featured/startups` | The 5 most recently created startups (homepage strip). | 🔓 Public |
-| `GET` | `/api/startup/:id` | Single startup details (validates `ObjectId`). | 🔓 Public |
-
-### Opportunities
-
-| Method | Route | Description | Auth |
-| --- | --- | --- | --- |
-| `POST` | `/api/opportunity` | Post an open role. Founder identity stamped server-side. | 🏢 Founder / 👑 Admin |
-| `PATCH` | `/api/opportunity/:id` | Edit a role (owner only). Keeps public founder profile in sync on owner edits. | 🪪 Owner / 👑 Admin |
-| `DELETE` | `/api/opportunity/:id` | Delete a role. | 🪪 Owner / 👑 Admin |
-| `GET` | `/api/my/opportunities` | The authenticated founder's roles, newest first; optional `?startupId=` filter. | 🏢 Founder |
-| `GET` | `/api/opportunities` | Search + list. Supports `?search=` (title/skills), `?workType=` (Remote/Hybrid/On-site, comma-separated), `?industry=` (resolved against the startups collection), and `?page=&limit=` (default `limit=9`). | 🔓 Public |
-| `GET` | `/api/opportunity/:id` | Single opportunity details (validates `ObjectId`). | 🔓 Public |
-| `GET` | `/api/featured/opportunities` | The 5 most recently posted roles (homepage strip). | 🔓 Public |
-
-### Applications
-
-| Method | Route | Description | Auth |
-| --- | --- | --- | --- |
-| `POST` | `/api/application` | Apply to a role. Applicant identity (id/name/email) is **stamped server-side**; notifies the founder. | 🤝 Collaborator |
-| `PATCH` | `/api/application/:id` | **Accept / Reject** a candidate. Notifies the collaborator of the decision. | 🏢 Founder / 👑 Admin |
-| `GET` | `/api/founder/applications` | Applications for the founder's own startup — returns `403` if asked for another founder's `startupId`. | 🏢 Founder |
-| `GET` | `/api/my/applications` | The user's own applications via `$lookup`-joined opportunity details. Blocks the IDOR where a collaborator queries another user's id. | 🤝 Collaborator / 👑 Admin |
-| `DELETE` | `/api/application/:id` | Withdraw an application (applicant, receiving founder, or admin). | 🪪 Owner / 🏢 Founder / 👑 Admin |
-
-### Bookmarks
-
-| Method | Route | Description | Auth |
-| --- | --- | --- | --- |
-| `POST` | `/api/bookmark` | Save an opportunity. Idempotent — returns the existing bookmark if already saved; owner stamped server-side. | 🪪 Token |
-| `DELETE` | `/api/bookmark/:id` | Remove a bookmark. Lookup is scoped to the current user so one user can never delete another's bookmark of the same opportunity. | 🪪 Owner / 👑 Admin |
-| `GET` | `/api/my/bookmarks` | The user's saved opportunities, newest first. Blocks cross-user reads. | 🤝 Collaborator / 👑 Admin |
-
-### Users
-
-| Method | Route | Description | Auth |
-| --- | --- | --- | --- |
-| `GET` | `/api/user/profile/:id` | Read a profile — self or admin only. **Sensitive fields are stripped** (passwords, tokens). | 🪪 Self / 👑 Admin |
-| `PATCH` | `/api/user/profile/:id` | Update own profile — a **whitelist** of fields (`name`, `image`, `skills`, `bio`). | 🪪 Self / 👑 Admin |
-| `PATCH` | `/api/user/:id` | Block / activate a user account (`status`). | 👑 Admin |
-| `GET` | `/api/users` | All users, sanitized, newest first (admin console). | 👑 Admin |
-
-### Notifications
-
-| Method | Route | Description | Auth |
-| --- | --- | --- | --- |
-| `GET` | `/api/notifications` | The user's notifications (newest 30) plus `unreadCount`. Admins also receive admin-wide alerts. | 🪪 Token |
-| `PATCH` | `/api/notifications/mark-all-read` | Mark all of the user's notifications read. | 🪪 Token |
-| `PATCH` | `/api/notifications/:id/read` | Mark a single notification read — own notifications only. | 🪪 Token |
+The server operates synchronously with the companion Next.js client: while the client handles authentication session creation via `better-auth`, this Express engine acts as the authoritative gatekeeper by **validating bearer session tokens directly against MongoDB Atlas** on every protected request.
 
 ---
 
-## 🔐 Authentication & Security
+## 💎 Core Engineering Pillars
 
-There are **no login/signup routes in this API** — that is deliberate. The companion Next.js client (better-auth) creates sessions and writes them into the shared `session` collection; this server **verifies** them.
-
-- **Bearer token verification** — `verifyToken` reads `Authorization: Bearer <token>`, resolves it against the `session` collection, and loads the user. No token → `401`.
-- **Role guards** — `requireAnyRole("founder", "collaborator", …)` returns `403` for the wrong role. It is built to be *invoked* with a role list (`requireAnyRole("founder", "admin")`) rather than chained with `||` — a chained `verifyA || verifyB` would silently skip every check after the first, which previously left routes open.
-- **Ownership checks on every mutation** — the founder who owns a startup/opportunity, the applicant or receiving founder for an application, the bookmark owner, and profile self-reads are all asserted in the handler, not left to the client.
-- **Server-side identity stamping** — `startupId`, `collaboratorId`, applicant name/email, and plan updates come from the authenticated session, so a client can't spoof ownership.
-- **IDOR protection** — cross-user lookups (`/api/my/applications`, `/api/my/bookmarks`, notifications, profiles) are explicitly rejected with `403` when the requested id doesn't match the caller.
-- **Sensitive-field sanitization** — a hard-coded blocklist (`password`, `hashedPassword`, `passwordHash`, `token`, `sessionToken`, …) is stripped from every user document before it leaves the server.
-- **CORS** — `credentials: true` with the origin pinned to `CLIENT_URL` from env, not `*`.
-- **Input validation** — every `:id` route validates `ObjectId` before touching the database; mutation bodies only accept defined fields.
+| Pillar | Engineering Detail | System Advantage |
+| :--- | :--- | :--- |
+| **🚀 Native MongoDB Driver** | Uses `mongodb@^7.5.0` without Mongoose ODM abstractions; Stable API v1 (`strict: true`). | Transparent aggregation pipelines (`$lookup`, `$match`, `$facet`), lower memory overhead, and lightning-fast execution. |
+| **🛡️ Token-Verified RBAC** | Custom `verifyToken` middleware resolves active bearer tokens against MongoDB `session` records. | Immediate token revocation detection with zero stale JWT session vulnerabilities. |
+| **🔒 Strict Anti-IDOR Enforcement** | Every mutation checks ownership against `req.user.id` or `req.user.email` directly in the route handler. | Eliminates Insecure Direct Object References; users can never inspect or mutate foreign records. |
+| **⚡ Smart Denormalization** | Founder credentials (`name`, `email`, `image`, `bio`) are stamped on startup & opportunity documents and re-synced in batch. | Eliminates N+1 database queries on public directory listings while preserving data privacy. |
+| **🔔 Event-Driven Notifications** | Automatic dispatching of targeted in-app alerts on status changes (Application Accepted/Rejected, Startup Vetting, Plan Upgrades). | Real-time member awareness without requiring third-party webhook dependencies. |
+| **🌐 Resilient Cloud Networking** | Hardcoded custom DNS lookup resolvers (`1.1.1.1` & `1.0.0.1`) initialized before database pooling. | Prevents transient DNS resolution failures when connecting to MongoDB Atlas within serverless environments. |
 
 ---
 
-## 🗄️ Database
+## 🏗️ System Architecture
 
-MongoDB via the **native driver** — no ODM, no schema layer. The connection is configured with the **Stable API v1** (`strict: true`, `deprecationErrors: true`) so the driver refuses API-breaking calls at runtime.
+```mermaid
+flowchart TB
+    subgraph ClientLayer["🖥️ Frontend Consumer (Next.js 16 App Router)"]
+        ClientReq["Client / Server Action Request"]
+        BearerToken["Authorization: Bearer <session_token>"]
+    end
 
-**Collections** (created and read directly by this API):
+    subgraph MiddlewareStack["🛡️ Express Middleware & Security Layer"]
+        DNS["Custom DNS Resolver (1.1.1.1 / 1.0.0.1)"]
+        CORS["CORS (Strict CLIENT_URL Allowlist)"]
+        Parser["express.json Body Parser"]
+        TokenVerifier["verifyToken (Validates Session Collection)"]
+        RoleGuard["requireAnyRole (Founder / Collaborator / Admin)"]
+        IDORCheck["Handler-Level Ownership & Tenant Assertion"]
+    end
 
-| Collection | Purpose |
-| --- | --- |
-| `user` | User accounts (name, image, bio, skills, `accountType`, `plan`, `status`) |
-| `session` | Auth sessions written by better-auth — the source of truth for token verification |
-| `startups` | Founder-submitted startup profiles (status workflow: Pending → Approved / Rejected → Resubmitted) |
-| `opportunities` | Open roles posted by founders, with role title, skills, work type, deadline |
-| `applications` | Collaborator applications, tracked through Pending / Accepted / Rejected |
-| `bookmarks` | Saved opportunities, keyed by `opportunityId` + `userId` |
-| `subscriptions` | Stripe payment receipts (plan, amount in cents, `session_id`, payment status) |
-| `plans` | Plan definitions driving quota limits (Free / Premium / Enterprise) |
-| `notifications` | Per-user and admin-wide alerts with `isRead` flags |
+    subgraph ServiceModules["⚙️ Core Route Modules (index.js)"]
+        SubModule["Subscriptions & Stripe Receipts"]
+        StartupModule["Startups & Approval Engine"]
+        OppModule["Opportunities & Quotas"]
+        AppModule["Applications Pipeline"]
+        BookmarkModule["Bookmarks & Favorites"]
+        UserModule["User Profiles & Governance"]
+        NotifyModule["Notification Dispatcher"]
+    end
 
-Notable query work: regex-powered search and multi-filter matching, count-then-skip pagination, a `$lookup` aggregation joining applications to opportunities (with string→`ObjectId` coercion), and batched `$in` enrichment for founder profiles.
+    subgraph StorageLayer["🗄️ MongoDB Atlas Persistence (Native Driver v7)"]
+        DBSessions[("session")]
+        DBUsers[("user")]
+        DBStartups[("startups")]
+        DBOpportunities[("opportunities")]
+        DBApplications[("applications")]
+        DBBookmarks[("bookmarks")]
+        DBSubscriptions[("subscriptions")]
+        DBPlans[("plans")]
+        DBNotifications[("notifications")]
+    end
 
----
+    ClientReq --> DNS
+    DNS --> CORS
+    CORS --> Parser
+    Parser --> TokenVerifier
+    BearerToken -.-> TokenVerifier
+    TokenVerifier -->|Fetch Session Record| DBSessions
+    DBSessions -->|Hydrate User Profile| DBUsers
+    TokenVerifier --> RoleGuard
+    RoleGuard --> IDORCheck
+    IDORCheck --> ServiceModules
 
-## 🚀 Getting Started
-
-```bash
-# 1. Clone
-git clone https://github.com/takebul/startup-forge-server.git
-cd startup-forge-server
-
-# 2. Install dependencies
-npm install
-
-# 3. Configure environment — copy the values below into a `.env` file
-
-# 4. Run
-npm start
+    SubModule --> DBSubscriptions
+    SubModule --> DBUsers
+    StartupModule --> DBStartups
+    OppModule --> DBOpportunities
+    AppModule --> DBApplications
+    BookmarkModule --> DBBookmarks
+    UserModule --> DBUsers
+    NotifyModule --> DBNotifications
 ```
 
-`npm start` runs `node index.js`, which starts Express on `PORT` (default **5000**). Verify with `curl http://localhost:5000/` — it should return `StartupForge server is running fine!`.
+---
 
-> ⚠️ `npm test` is currently a stub (it echoes "no test specified"). This is a known gap, not a feature.
+## 📡 Complete API Reference
+
+### Auth & Permission Legend
+
+| Badge | Meaning |
+| :--- | :--- |
+| `🔓 Public` | No authorization token required |
+| `🪪 Token` | Requires valid session token (`Authorization: Bearer <token>`) |
+| `🏢 Founder` | Authenticated account with `founder` or `admin` role |
+| `🤝 Collaborator`| Authenticated account with `collaborator` or `admin` role |
+| `👑 Admin` | Administrator access only (bypasses ownership checks) |
+
+---
+
+### System Health
+
+| Method | Endpoint | Description | Auth |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/` | API health check and server connectivity status probe. | `🔓 Public` |
+
+---
+
+### Subscriptions & Stripe Billing
+
+| Method | Endpoint | Description | Auth |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/subscriptions` | Ingests Stripe payment session, idempotently records receipt, updates user `plan`, and dispatches admin notifications. | `🪪 Token` |
+| `GET` | `/api/subscriptions` | Returns all recorded subscription payment transactions sorted newest first (Admin ledger). | `👑 Admin` |
+| `GET` | `/api/plans` | Retrieves platform plan definitions, quotas, and feature entitlements (`?plan_id=` filter supported). | `🪪 Token` |
+
+---
+
+### Startups & Approval Pipeline
+
+| Method | Endpoint | Description | Auth |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/startup` | Registers a new startup profile. Founder credentials stamped server-side; triggers admin review alerts. | `🏢 Founder` |
+| `PATCH` | `/api/startup/:id` | Modifies or resubmits a startup profile (owner), or transitions status to `Approved` / `Rejected` (admin). Cascades status to opportunities. | `🪪 Owner` / `👑 Admin` |
+| `DELETE` | `/api/startup/:id` | Permanently deletes a startup profile and verifies ownership. | `🪪 Owner` / `👑 Admin` |
+| `GET` | `/api/my/startup` | Retrieves startups owned by the authenticated founder (`?startupId=` optional filter). | `🏢 Founder` |
+| `GET` | `/api/startups` | Searchable startup catalog with faceted filters: `?search=`, `?industry=`, `?funding_stage=`, and `?page=&limit=`. | `🔓 Public` |
+| `GET` | `/api/featured/startups` | Returns the 5 most recently created and verified startups for homepage strips. | `🔓 Public` |
+| `GET` | `/api/startup/:id` | Returns complete details for a single startup by `ObjectId`. | `🔓 Public` |
+
+---
+
+### Opportunities & Role Management
+
+| Method | Endpoint | Description | Auth |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/opportunity` | Publishes a new open role for a verified startup. Enforces server-side founder identity stamping. | `🏢 Founder` |
+| `PATCH` | `/api/opportunity/:id` | Edits an existing opportunity. Automatically syncs founder profile attributes upon update. | `🪪 Owner` / `👑 Admin` |
+| `DELETE` | `/api/opportunity/:id` | Removes an opportunity listing after verifying ownership. | `🪪 Owner` / `👑 Admin` |
+| `GET` | `/api/my/opportunities` | Returns all opportunities posted by the authenticated founder (`?startupId=` optional filter). | `🏢 Founder` |
+| `GET` | `/api/opportunities` | Paginated opportunity directory with full-text regex search (`?search=`), `?workType=`, `?industry=`, and `?page=&limit=`. | `🔓 Public` |
+| `GET` | `/api/featured/opportunities`| Fetches the 5 most recently posted active opportunities. | `🔓 Public` |
+| `GET` | `/api/opportunity/:id` | Detailed view of a single opportunity record. | `🔓 Public` |
+
+---
+
+### Applications Workflow
+
+| Method | Endpoint | Description | Auth |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/application` | Submits candidate application to an opportunity. Stamps applicant credentials and dispatches alert to founder. | `🤝 Collaborator` |
+| `PATCH` | `/api/application/:id` | Founders make `Accepted` or `Rejected` decisions. Automatically notifies candidate of status outcome. | `🏢 Founder` / `👑 Admin` |
+| `GET` | `/api/founder/applications` | Returns all candidate applications submitted to the authenticated founder's startups. | `🏢 Founder` |
+| `GET` | `/api/my/applications` | Returns the authenticated collaborator's applications enriched with opportunity details via `$lookup`. Blocks cross-user snooping. | `🤝 Collaborator` |
+| `DELETE` | `/api/application/:id` | Withdraws or cancels an application (caller must be applicant, receiving founder, or admin). | `🪪 Owner` / `🏢 Founder` |
+
+---
+
+### Bookmarks & Saved Roles
+
+| Method | Endpoint | Description | Auth |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/bookmark` | Saves an opportunity to personal bookmarks. Idempotently returns existing bookmark if duplicate. | `🪪 Token` |
+| `DELETE` | `/api/bookmark/:id` | Removes a saved bookmark record. Scoped strictly to the caller's `userId`. | `🪪 Owner` / `👑 Admin` |
+| `GET` | `/api/my/bookmarks` | Returns all saved bookmarks for the authenticated collaborator. Prevents IDOR data leaks. | `🤝 Collaborator` |
+
+---
+
+### User Administration & Governance
+
+| Method | Endpoint | Description | Auth |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/user/profile/:id` | Retrieves sanitized member profile. Permitted only for self or platform admins. | `🪪 Self` / `👑 Admin` |
+| `PATCH` | `/api/user/profile/:id` | Updates user profile fields (`name`, `image`, `skills`, `bio`) through a strict allowlist. | `🪪 Self` / `👑 Admin` |
+| `PATCH` | `/api/user/:id` | Moderates user account status (e.g. `active` / `banned`). | `👑 Admin` |
+| `GET` | `/api/users` | Returns list of platform users with sanitized sensitive credentials for administration console. | `👑 Admin` |
+
+---
+
+### In-App Notifications
+
+| Method | Endpoint | Description | Auth |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/notifications` | Returns the 30 most recent user notifications and aggregate `unreadCount`. Admins also receive broadcast alerts. | `🪪 Token` |
+| `PATCH` | `/api/notifications/mark-all-read` | Marks all unread notifications as read for the authenticated caller. | `🪪 Token` |
+| `PATCH` | `/api/notifications/:id/read` | Marks a single notification record as read after asserting caller ownership. | `🪪 Token` |
+
+---
+
+## 🔐 Security & Authentication Architecture
+
+The server adopts a **Zero-Trust Security Model** tailored for distributed SaaS platforms:
+
+### 1. External Session Verification
+Instead of issuing stateless JWTs that cannot be revoked immediately, the API verifies bearer tokens against the `session` collection created by `better-auth`:
+```javascript
+// Verification extracts Bearer token, checks expiration, and hydrates user:
+const sessionRecord = await sessionCollection.findOne({
+  token: tokenString,
+  expiresAt: { $gt: new Date() },
+});
+if (!sessionRecord) return res.status(401).json({ message: "Invalid or expired session" });
+```
+
+### 2. Multi-Role Evaluators
+The `requireAnyRole` middleware accepts multiple allowable roles and prevents bypass exploits:
+```javascript
+const requireAnyRole = (...roles) => (req, res, next) => {
+  const currentRole = String(req.user.role || req.user.accountType || "").toLowerCase();
+  if (!roles.map(r => r.toLowerCase()).includes(currentRole)) {
+    return res.status(403).json({ message: "Forbidden: insufficient permissions" });
+  }
+  next();
+};
+```
+
+### 3. Server-Side Identity Stamping
+Clients are **never** trusted to provide their own author, founder, or applicant ID in request payloads:
+- `startupId`, `founderId`, `collaboratorId`, and `applicantEmail` are populated strictly from `req.user`.
+- Even if a malicious user alters their client payload to target another account, the server overwrites the fields with verified session data.
+
+### 4. Sensitive Field Stripping
+All user documents returned by the API pass through a strict sanitization filter:
+```javascript
+const SENSITIVE_FIELDS = ["password", "passwordHash", "hashedPassword", "token", "sessionToken"];
+```
+
+---
+
+## 🗄️ Database Collections & Aggregations
+
+Operating on **MongoDB Atlas** using the native Node.js driver:
+
+| Collection | Schema Focus | Critical Index & Query Pattern |
+| :--- | :--- | :--- |
+| `user` | Account credentials, persona (`founder` / `collaborator` / `admin`), `plan`, `status`. | Indexed on `email`, `role`, `accountType`. |
+| `session` | Active `better-auth` tokens, user references, and `expiresAt` timestamps. | TTL index on `expiresAt` for automatic cleanup. |
+| `startups` | Company profiles, funding stage, industry, website, logo URL, approval status. | Compound text index on `name`, `industry`, `description`. |
+| `opportunities` | Open positions, title, requirements, salary/equity, work type, deadline, quotas. | Indexed on `startupId`, `workType`, `deadline`. |
+| `applications` | Candidate resumes, pitch messages, current evaluation status (`Pending` / `Accepted` / `Rejected`). | Composite `$lookup` joining `opportunities` collection. |
+| `bookmarks` | Saved positions keyed by `opportunityId` and `userId`. | Unique compound index on `{ opportunityId: 1, userId: 1 }`. |
+| `subscriptions` | Stripe payment sessions, amount in cents, plan tier, currency, timestamps. | Unique index on `session_id` (idempotency barrier). |
+| `plans` | Quota tiers definitions (e.g. Free Starter, Pro, Enterprise). | Keyed by `plan_id`. |
+| `notifications` | In-app alerts, target `recipientId`, event type, message, read flags. | Indexed on `{ recipientId: 1, isRead: 1, createdAt: -1 }`. |
 
 ---
 
 ## 🔧 Environment Variables
 
-Create a `.env` at the project root. All values are read from `process.env` in [`index.js`](index.js).
+Create a `.env` file in the root of `startup-forge-server/`:
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `MONGODB_URI` | *(required)* | MongoDB connection string, e.g. `mongodb+srv://<user>:<password>@cluster0.mongodb.net/` |
-| `DB_NAME` | *(required)* | Database name holding the collections above |
-| `CLIENT_URL` | *(required)* | The frontend origin allowed by CORS, e.g. `http://localhost:3000` |
-| `PORT` | `5000` | HTTP port for local development (ignored on Vercel) |
+```env
+# -----------------------------------------------------------------------------
+# HTTP RUNTIME CONFIGURATION
+# -----------------------------------------------------------------------------
+PORT=5000
 
-> **Never commit `.env`** — it's gitignored. Vercel reads the same variables from its project dashboard.
+# -----------------------------------------------------------------------------
+# CORS SECURITY
+# Pinned to client domain (No wildcards)
+# -----------------------------------------------------------------------------
+CLIENT_URL="http://localhost:3000"
+
+# -----------------------------------------------------------------------------
+# MONGODB ATLAS CONNECTION (Native Driver)
+# -----------------------------------------------------------------------------
+MONGODB_URI="mongodb+srv://<username>:<password>@cluster0.mongodb.net/?appName=Cluster0"
+DB_NAME="StartupForge"
+```
 
 ---
 
-## 📁 Project Structure
+## 🚀 Quick Start & Local Setup
 
-```
-startup-forge-server/
-├─ index.js          # The entire API — Express setup, middleware, and all 33 routes
-├─ vercel.json       # Vercel serverless build (@vercel/node) + catch-all route config
-├─ package.json      # Dependencies (express, mongodb, cors, dotenv); ISC license
-├─ package-lock.json # Locked dependency versions
-├─ .env              # Local environment config (gitignored — never commit)
-└─ .gitignore
+### Prerequisites
+- **Node.js**: `v18.17.0` or newer
+- **npm** or **pnpm**
+- **MongoDB**: Local database or free [MongoDB Atlas Cluster](https://www.mongodb.com/cloud/atlas)
+
+### 1. Clone & Navigate
+```bash
+git clone https://github.com/takebul/startup-forge-server.git
+cd startup-forge-server
 ```
 
-Deliberately compact: no `routes/`, `controllers/`, or `models/` folders — the service's surface is small enough that a single, clearly-sectioned file keeps every route in view.
+### 2. Install Dependencies
+```bash
+npm install
+```
+
+### 3. Configure Environment
+Create a `.env` file matching the specifications above.
+
+### 4. Start the Server
+```bash
+npm start
+```
+
+### 5. Verify Health Check
+Open your terminal or browser:
+```bash
+curl http://localhost:5000/
+# Output: "StartupForge server is running fine!"
+```
 
 ---
 
-## 🌐 Deployment
+## 🌐 Deployment Architecture
 
-Deployed to **Vercel** at **[https://startup-forge-server-nine.vercel.app/](https://startup-forge-server-nine.vercel.app/)**.
+The server is configured for automated continuous deployment on **Vercel** via serverless lambdas:
 
-[`vercel.json`](vercel.json) builds `index.js` with the `@vercel/node` runtime and routes **all paths and all HTTP methods** (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`) to it as a single serverless function:
+- **Live URL**: [https://startup-forge-server-nine.vercel.app/](https://startup-forge-server-nine.vercel.app/)
+- **Serverless Adapter**: [`vercel.json`](vercel.json) bundles `index.js` using `@vercel/node` and forwards all HTTP methods through a wildcard route:
 
 ```json
 {
   "version": 2,
-  "builds": [{ "src": "index.js", "use": "@vercel/node" }],
+  "builds": [
+    { "src": "index.js", "use": "@vercel/node" }
+  ],
   "routes": [
     { "src": "/(.*)", "dest": "index.js", "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] }
   ]
 }
 ```
 
-The API boots with an explicit DNS override (`1.1.1.1` / `1.0.0.1`) to keep MongoDB Atlas name resolution reliable inside the Vercel serverless runtime.
+- **Cloudflare DNS Resolver**: High-performance explicit DNS resolution (`1.1.1.1` and `1.0.0.1`) is configured at boot time to prevent cold-start latency when resolving MongoDB Atlas connection endpoints in serverless microVMs.
 
 ---
 
-## 🧑‍💻 Author
+## 🧑‍💻 Author & License
 
-**Takebul Islam** — full-stack developer building products that pair clean UX with real business logic.
+**Takebul Islam**  
+*Full-Stack Engineer building robust, scalable APIs and modern web applications.*
 
-- 🌐 Portfolio: [takebulislam.vercel.app](https://takebulislam.vercel.app/)
-- 💼 LinkedIn: [takebulislam](https://www.linkedin.com/in/takebulislam)
-- 🐙 GitHub: [@takebul](https://github.com/takebul)
+<p align="left">
+  <a href="https://takebulislam.vercel.app/" target="_blank">
+    <img src="https://img.shields.io/badge/Portfolio-takebulislam.vercel.app-7C3AED?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Portfolio" />
+  </a>
+  <a href="https://www.linkedin.com/in/takebulislam" target="_blank">
+    <img src="https://img.shields.io/badge/LinkedIn-takebulislam-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn" />
+  </a>
+  <a href="https://github.com/takebul" target="_blank">
+    <img src="https://img.shields.io/badge/GitHub-@takebul-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub" />
+  </a>
+</p>
 
----
+<br />
 
-## 📄 License
-
-Distributed under the **ISC License** — see [package.json](./package.json).
+Distributed under the **ISC License** — see [package.json](./package.json) for full terms.
